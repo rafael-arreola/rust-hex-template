@@ -1,0 +1,8 @@
+/target
+**/*/target
+.env*
+!.env.example
+*.bin
+!README.md
+!GEMINI.md
+!CLAUDE.md

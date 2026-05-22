@@ -1,0 +1,48 @@
+steps:
+  - id: "Building container image"
+    name: "gcr.io/cloud-builders/docker"
+    entrypoint: "bash"
+    args:
+      - -c
+      - |
+        docker buildx create --use &&
+        docker buildx build \
+          --cache-from=type=registry,ref=us-docker.pkg.dev/$PROJECT_ID/artifacts/$_CACHE:cache \
+          --cache-to=type=registry,ref=us-docker.pkg.dev/$PROJECT_ID/artifacts/$_CACHE:cache,mode=max \
+          --push \
+          -t us-docker.pkg.dev/$PROJECT_ID/artifacts/$_SERVICE_NAME:$COMMIT_SHA \
+          -f build/Dockerfile .
+
+  # 2. Register Service Image (Push)
+  - id: "register-service"
+    name: "gcr.io/cloud-builders/docker"
+    args:
+      [
+        "push",
+        "us-docker.pkg.dev/$PROJECT_ID/artifacts/$_SERVICE_NAME:$COMMIT_SHA",
+      ]
+
+  # 3. Deploy to Cloud Run
+  - id: "deploy-service"
+    name: "gcr.io/cloud-builders/gcloud"
+    args:
+      - "run"
+      - "deploy"
+      - "$_SERVICE_NAME"
+      - "--image=us-docker.pkg.dev/$PROJECT_ID/artifacts/$_SERVICE_NAME:$COMMIT_SHA"
+      - "--service-account=$SERVICE_ACCOUNT_EMAIL"
+      - "--region=$_REGION"
+      - "--platform=managed"
+      - "--allow-unauthenticated"
+      - "--cpu-boost"
+      - "--set-env-vars=SERVICE_NAME=$_SERVICE_NAME"
+      - "--set-env-vars=PROJECT_ID=$PROJECT_ID"
+      # Configure sus secretos y envs adicionales manualmente o vía sustituciones
+
+substitutions:
+  _APP_ENV: "PRD"
+  _REGION: "us-central1"
+
+options:
+  machineType: E2_HIGHCPU_32
+  logging: CLOUD_LOGGING_ONLY
