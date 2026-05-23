@@ -97,6 +97,8 @@ core/domain/src/port/mod.rs
 core/domain/src/error.rs                          → DomainError enum + DomainResult<T>
 core/domain/src/values.rs                         → DomainId<T>
 core/domain/src/pagination.rs                     → Pagination struct
+core/domain/src/macros.rs                         → Macros module router (no mod.rs)
+core/domain/src/macros/json.rs                    → JSON serialization macros (as_json!)
 core/domain/src/lib.rs                            → Domain crate root (pub mod)
 
 core/usecases/src/{entity}.rs                     → {Entity}Service (rules & logic)
@@ -260,3 +262,58 @@ pub type DomainResult<T> = std::result::Result<T, DomainError>;
 1. One-line architectural decision.
 2. Code in dependency order: `domain` → `usecases` → `infra-mongo`/`infra-redis` → `infra-http-axum` → `main.rs`.
 3. Trade-offs only if complexity demands it.
+
+## Logging & Structured Telemetry Rules
+
+To log complete domain objects, entities, or DTOs in telemetry or tracing events, **DO NOT** use the `?` (Debug) format or manual serialization. Instead, use the `as_json!` macro exported by the `domain` crate to safely wrap them as serialized strings.
+
+Always inject the field using the `%` prefix to indicate that it is a formatted string.
+
+**Example ✅:**
+
+```rust
+use domain::as_json;
+
+tracing::info!(user = %as_json!(&user), "User created successfully");
+```
+
+This allows the telemetry layer to process, parse, and expand this field into a real nested JSON object transparently and efficiently.
+
+## Architectural Boundaries & Concurrency Rules
+
+### 1. Thread Safety Guarantee (`Send + Sync`)
+
+The Axum framework and the Tokio runtime distribute request execution concurrently across multiple worker threads. Therefore, any struct, service, or port that crosses application layers **must** be safe to share across threads:
+
+- All port traits defined in the `domain` layer must be explicitly bounded by `Send + Sync`.
+- Async traits must be decorated with the `#[async_trait]` attribute.
+
+**Example ✅:**
+
+```rust
+#[async_trait]
+pub trait UserRepositoryPort: Send + Sync { ... }
+```
+
+### 2. Data Validation Boundaries (DTOs vs. Domain)
+
+To maintain a pure domain model, we isolate validations into two clear boundaries:
+
+- **Syntactic Validation (HTTP Layer - DTOs):** Validates basic data structure and format (e.g., string length, email format, positive numbers) in the `*Input` DTOs using the `validator` library.
+- **Semantic Validation (Use Cases Layer - Domain):** Validates complex business rules and state consistency (e.g., email uniqueness, stock availability, transactional limits) by querying domain ports.
+
+### 3. Absolute Encapsulation of Infrastructure Errors
+
+No database driver error (`mongodb::error::Error`, `redis::RedisError`) or external dependency error must propagate to upper layers (`usecases` or `domain`):
+
+- Infrastructure adapters must intercept all technology-specific errors using `.map_err(...)`.
+- Map these errors using the corresponding constructors of `DomainError` (e.g., `DomainError::database`, `DomainError::internal`).
+
+**Example ✅:**
+
+```rust
+self.collection
+    .insert_one(model)
+    .await
+    .map_err(|e| DomainError::database(e.to_string()))?
+```
