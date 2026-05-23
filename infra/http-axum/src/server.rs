@@ -1,4 +1,14 @@
+pub mod error;
+pub mod response;
+pub mod state;
+pub mod validation;
+
 use axum::{Router, extract::DefaultBodyLimit};
+use axum::{
+    body::Body,
+    http::{HeaderValue, Request, Response, header},
+    middleware::{self, Next},
+};
 use std::net::SocketAddr;
 use tokio::signal;
 use tower_http::{
@@ -8,9 +18,9 @@ use tower_http::{
     trace::TraceLayer,
 };
 
+use self::state::AppState;
 use crate::config;
 use crate::routes;
-use crate::state::AppState;
 
 pub struct ServerLauncher {
     state: AppState,
@@ -55,6 +65,7 @@ impl ServerLauncher {
 
             let rest_router = Router::new()
                 .nest("/api/v1", routes::app_router())
+                .layer(middleware::from_fn(msgpack_negotiation))
                 .layer(TraceLayer::new_for_http())
                 .layer(CompressionLayer::new())
                 .layer(RequestDecompressionLayer::new())
@@ -80,6 +91,49 @@ impl ServerLauncher {
             }
         }
     }
+}
+
+pub async fn msgpack_negotiation(req: Request<Body>, next: Next) -> Response<Body> {
+    let accept = req
+        .headers()
+        .get(header::ACCEPT)
+        .and_then(|h| h.to_str().ok())
+        .unwrap_or("");
+
+    let wants_msgpack = accept.contains("application/vnd.msgpack");
+
+    let response = next.run(req).await;
+
+    if wants_msgpack && response.status().is_success() {
+        let is_json = response
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|h| h.to_str().ok())
+            .map(|s| s.contains("application/json"))
+            .unwrap_or(false);
+
+        if is_json {
+            let (mut parts, body) = response.into_parts();
+            if let Ok(bytes) = axum::body::to_bytes(body, 10 * 1024 * 1024).await {
+                if let Ok(json_val) = serde_json::from_slice::<serde_json::Value>(&bytes) {
+                    if let Ok(msgpack_bytes) = rmp_serde::to_vec(&json_val) {
+                        parts.headers.insert(
+                            header::CONTENT_TYPE,
+                            HeaderValue::from_static("application/vnd.msgpack"),
+                        );
+                        return Response::from_parts(parts, Body::from(msgpack_bytes));
+                    }
+                }
+                // Si la serialización de msgpack falla, reconstruimos la respuesta JSON original
+                return Response::from_parts(parts, Body::from(bytes));
+            } else {
+                // Caso extremo donde no se pudieron leer los bytes del cuerpo
+                return Response::from_parts(parts, Body::empty());
+            }
+        }
+    }
+
+    response
 }
 
 async fn shutdown_signal(name: &str) {

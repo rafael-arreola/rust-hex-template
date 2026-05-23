@@ -1,9 +1,7 @@
-use crate::{
-    error::ApiError,
-    order::dtos::{CreateOrderInput, OrderOutput},
-    response::GenericApiResponse,
-    state::AppState,
-    validation::ValidatedJson,
+pub mod dtos;
+
+use crate::server::{
+    error::ApiError, response::GenericApiResponse, state::AppState, validation::ValidatedJson,
 };
 use axum::{
     Router,
@@ -18,6 +16,8 @@ use serde::Deserialize;
 use std::sync::Arc;
 use usecases::order::OrderService;
 use validator::Validate;
+
+use self::dtos::{CreateOrderInput, OrderOutput};
 
 #[derive(Debug, Deserialize, Validate)]
 pub struct OrderQuery {

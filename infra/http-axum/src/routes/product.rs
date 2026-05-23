@@ -1,9 +1,7 @@
-use crate::{
-    error::ApiError,
-    product::dtos::{CreateProductInput, ProductOutput, UpdateProductMetadataInput},
-    response::GenericApiResponse,
-    state::AppState,
-    validation::ValidatedJson,
+pub mod dtos;
+
+use crate::server::{
+    error::ApiError, response::GenericApiResponse, state::AppState, validation::ValidatedJson,
 };
 use axum::{
     Router,
@@ -16,6 +14,8 @@ use serde::Deserialize;
 use std::sync::Arc;
 use usecases::product::ProductService;
 use validator::Validate;
+
+use self::dtos::{CreateProductInput, ProductOutput, UpdateProductMetadataInput};
 
 #[derive(Debug, Deserialize, Validate)]
 pub struct ProductQuery {

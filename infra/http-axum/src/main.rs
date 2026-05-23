@@ -1,14 +1,7 @@
 mod config;
-mod error;
-mod order;
-mod product;
-mod response;
 mod routes;
 mod server;
-mod state;
 mod telemetry;
-mod user;
-mod validation;
 
 use domain::port::{
     order::OrderRepositoryPort, product::ProductRepositoryPort, user::UserRepositoryPort,
@@ -18,7 +11,7 @@ use infra_mongo::{
     provider::MongoProvider, user::repository::UserRepository,
 };
 use server::ServerLauncher;
-use state::AppState;
+use server::state::AppState;
 use std::sync::Arc;
 use usecases::{order::OrderService, product::ProductService, user::UserService};
 

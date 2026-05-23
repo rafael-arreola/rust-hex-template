@@ -1,4 +1,4 @@
-use crate::response::GenericApiResponse;
+use crate::server::response::GenericApiResponse;
 use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},

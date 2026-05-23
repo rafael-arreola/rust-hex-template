@@ -10,9 +10,7 @@ pub struct Env {
     pub project_id: String,
     pub mongo_url: String,
     pub mongo_db: String,
-    // pub redis_url: String,
     pub debug_level: String,
-    // pub storage_bucket: String,
     pub cors_origins: String,
 }
 
@@ -37,9 +35,7 @@ impl Env {
             mongo_url: env::var("MONGO_URL")
                 .unwrap_or_else(|_| "mongodb://localhost:27017".to_string()),
             mongo_db: env::var("MONGO_DB").unwrap_or_else(|_| "service_db".to_string()),
-            // redis_url: env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string()),
             debug_level: env::var("DEBUG_LEVEL").unwrap_or_else(|_| "info".to_string()),
-            // storage_bucket: env::var("STORAGE_BUCKET").unwrap_or_default(),
             cors_origins: env::var("CORS_ORIGINS").unwrap_or_else(|_| "*".to_string()),
         }
     }

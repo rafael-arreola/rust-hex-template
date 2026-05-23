@@ -1,8 +1,9 @@
-use crate::{
+pub mod dtos;
+
+use crate::server::{
     error::ApiError,
     response::{GenericApiResponse, GenericPagination},
     state::AppState,
-    user::dtos::{CreateUserInput, UserOutput},
     validation::ValidatedJson,
 };
 use axum::{
@@ -16,6 +17,8 @@ use serde::Deserialize;
 use std::sync::Arc;
 use usecases::user::UserService;
 use validator::Validate;
+
+use self::dtos::{CreateUserInput, UserOutput};
 
 #[derive(Debug, Deserialize, Validate)]
 pub struct UserQuery {
