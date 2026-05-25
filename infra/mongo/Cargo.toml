@@ -4,12 +4,12 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-domain = { workspace = true }
-mongodb = { workspace = true }
-bson = { workspace = true }
-serde = { workspace = true }
 async-trait = { workspace = true }
-futures = { workspace = true }
-tracing = { workspace = true }
-tokio = { workspace = true }
+bson = { workspace = true }
 chrono = { workspace = true }
+domain = { workspace = true }
+futures = { workspace = true }
+mongodb = { workspace = true }
+serde = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }

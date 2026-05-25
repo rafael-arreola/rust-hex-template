@@ -6,26 +6,26 @@ edition = "2024"
 [dependencies]
 # Local workspace dependencies
 domain = { workspace = true }
-usecases = { workspace = true }
+infra-http-axum = { workspace = true }
 infra-mongo = { workspace = true }
 infra-redis = { workspace = true }
-infra-http-axum = { workspace = true }
+usecases = { workspace = true }
 
 # Async runtime
 tokio = { workspace = true }
 
 # Utilities & Config
+anyhow = { workspace = true }
 dotenvy = { workspace = true }
 rustls = { workspace = true }
-anyhow = { workspace = true }
 
 # Observability & Tracing
 tracing = { workspace = true }
-tracing-subscriber = { workspace = true }
-tracing-stackdriver = { workspace = true }
 tracing-opentelemetry = { workspace = true }
+tracing-stackdriver = { workspace = true }
+tracing-subscriber = { workspace = true }
 
 # OpenTelemetry
 opentelemetry = { workspace = true }
-opentelemetry_sdk = { workspace = true }
 opentelemetry-gcloud-trace = { workspace = true }
+opentelemetry_sdk = { workspace = true }

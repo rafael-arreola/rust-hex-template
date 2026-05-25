@@ -4,9 +4,9 @@ resolver = "3"
 members = [
     "core/domain",
     "core/usecases",
-    "infra/http-axum",
     "infra/mongo",
     "infra/redis",
+    "infra/http-axum",
     "service",
 ]
 
@@ -19,18 +19,9 @@ infra-redis = { path = "infra/redis" }
 usecases = { path = "core/usecases" }
 
 # external dependencies
-axum = "0.8"
-tower = { version = "0.5", features = ["util", "make"] }
-tower-http = { version = "0.6", features = [
-    "cors",
-    "trace",
-    "timeout",
-    "compression-gzip",
-    "decompression-gzip",
-] }
-
 anyhow = "1"
 async-trait = "0.1"
+axum = "0.8"
 bson = { version = "3", features = ["chrono-0_4", "serde"] }
 chrono = { version = "0.4", default-features = false, features = [
     "serde",
@@ -56,6 +47,14 @@ serde_json = "1"
 serde_with = "3"
 thiserror = "2"
 tokio = { version = "1", features = ["full"] }
+tower = { version = "0.5", features = ["util", "make"] }
+tower-http = { version = "0.6", features = [
+    "cors",
+    "trace",
+    "timeout",
+    "compression-gzip",
+    "decompression-gzip",
+] }
 tracing = "0.1"
 tracing-opentelemetry = "0.33"
 tracing-stackdriver = { version = "0.10", features = ["opentelemetry"] }

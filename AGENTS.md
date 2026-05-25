@@ -112,20 +112,18 @@ infra/mongo/src/lib.rs                            → Mongo crate root (pub mod)
 
 infra/redis/src/lib.rs                            → Redis connections & helpers
 
-infra/http-axum/src/presentation/http/{entity}/dtos/input.rs  → *Input (deserialize + validate)
-infra/http-axum/src/presentation/http/{entity}/dtos/output.rs → *Output (serialize only)
-infra/http-axum/src/presentation/http/{entity}/dtos/mod.rs
-infra/http-axum/src/presentation/http/{entity}/routes.rs      → Axum handlers
-infra/http-axum/src/presentation/http/{entity}/mod.rs
-infra/http-axum/src/presentation/http/error.rs                → ApiError
-infra/http-axum/src/presentation/http/response.rs             → GenericApiResponse
-infra/http-axum/src/presentation/http/mod.rs
-infra/http-axum/src/presentation/state.rs                     → AppState (Services container)
-infra/http-axum/src/presentation/server.rs                    → Server Launcher & graceful shutdown
-infra/http-axum/src/presentation/mod.rs
-infra/http-axum/src/config.rs                                 → Env configuration loaded once
-infra/http-axum/src/telemetry.rs                              → OpenTelemetry & Tracing setup
-infra/http-axum/src/main.rs                                   → Composition Root & DI wiring
+infra/http-axum/src/routes/{entity}.rs                        → Axum handlers/controllers
+infra/http-axum/src/routes/mod.rs                             → Router registration
+infra/http-axum/src/server/error.rs                           → ApiError definition
+infra/http-axum/src/server/response.rs                        → GenericApiResponse
+infra/http-axum/src/server/state.rs                           → AppState (Services container)
+infra/http-axum/src/server/validation.rs                      → Validation utilities
+infra/http-axum/src/server.rs                                 → Server Launcher & graceful shutdown
+infra/http-axum/src/lib.rs                                    → HTTP-Axum crate root (pub mod)
+
+service/src/config.rs                                         → Environment configuration (loaded once)
+service/src/telemetry.rs                                      → OpenTelemetry & tracing setup
+service/src/main.rs                                           → Composition Root & DI wiring (Main binary)
 ```
 
 **Module registration rule:** every new file MUST be exported in its parent `mod.rs` (`pub mod {entity};`) or `lib.rs`.
@@ -317,3 +315,11 @@ self.collection
     .await
     .map_err(|e| DomainError::database(e.to_string()))?
 ```
+
+## Dependency Sorting Rules (`cargo-sort`)
+
+To maintain clean, organized, and standardized `Cargo.toml` files throughout the development of this template:
+
+- All dependency blocks (e.g., `[dependencies]`, `[workspace.dependencies]`, etc.) must be sorted alphabetically and grouped/ordered by their nature.
+- Always run the workspace sorting command `cargo sort -w -g` to check and apply changes across all workspace crates before committing or wrapping up changes in dependencies.
+- Ensure that no manual unstructured ordering of dependencies is introduced into any `Cargo.toml` file.
