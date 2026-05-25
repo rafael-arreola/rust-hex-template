@@ -1,6 +1,4 @@
 mod config;
-mod routes;
-mod server;
 mod telemetry;
 
 use domain::port::{
@@ -10,8 +8,7 @@ use infra_mongo::{
     order::repository::OrderRepository, product::repository::ProductRepository,
     provider::MongoProvider, user::repository::UserRepository,
 };
-use server::ServerLauncher;
-use server::state::AppState;
+use infra_http_axum::{AppState, ServerLauncher};
 use std::sync::Arc;
 use usecases::{order::OrderService, product::ProductService, user::UserService};
 
@@ -72,5 +69,9 @@ async fn main() {
         order_service,
     };
 
-    ServerLauncher::new(state).with_http(env.port).run().await;
+    ServerLauncher::new(state)
+        .with_cors_origins(env.cors_origins.clone())
+        .with_http(env.port)
+        .run()
+        .await;
 }

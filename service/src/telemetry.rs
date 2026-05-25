@@ -48,7 +48,7 @@ pub async fn init_tracing() -> anyhow::Result<()> {
 
     let tracer_provider: opentelemetry_sdk::trace::Tracer =
         builder.install(&provider).await.map_err(|e| {
-            let err = format!("Failed to install tracer: {}", e);
+            let err = format!("Failed to create tracer: {}", e);
             tracing::warn!("{}", err);
             anyhow::anyhow!(err)
         })?;

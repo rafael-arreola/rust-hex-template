@@ -1,0 +1,31 @@
+[package]
+name = "service"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+# Local workspace dependencies
+domain = { workspace = true }
+usecases = { workspace = true }
+infra-mongo = { workspace = true }
+infra-redis = { workspace = true }
+infra-http-axum = { workspace = true }
+
+# Async runtime
+tokio = { workspace = true }
+
+# Utilities & Config
+dotenvy = { workspace = true }
+rustls = { workspace = true }
+anyhow = { workspace = true }
+
+# Observability & Tracing
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tracing-stackdriver = { workspace = true }
+tracing-opentelemetry = { workspace = true }
+
+# OpenTelemetry
+opentelemetry = { workspace = true }
+opentelemetry_sdk = { workspace = true }
+opentelemetry-gcloud-trace = { workspace = true }

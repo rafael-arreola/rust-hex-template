@@ -19,12 +19,12 @@ use tower_http::{
 };
 
 use self::state::AppState;
-use crate::config;
 use crate::routes;
 
 pub struct ServerLauncher {
     state: AppState,
     http_port: Option<u16>,
+    cors_origins: Option<String>,
 }
 
 impl ServerLauncher {
@@ -32,6 +32,7 @@ impl ServerLauncher {
         Self {
             state,
             http_port: None,
+            cors_origins: None,
         }
     }
 
@@ -40,19 +41,23 @@ impl ServerLauncher {
         self
     }
 
-    pub async fn run(self) {
-        let env = config::get();
+    pub fn with_cors_origins(mut self, cors_origins: String) -> Self {
+        self.cors_origins = Some(cors_origins);
+        self
+    }
 
+    pub async fn run(self) {
         if let Some(port) = self.http_port {
             let state = self.state.clone();
 
-            let cors = if env.cors_origins == "*" {
+            let cors_origins_str = self.cors_origins.unwrap_or_else(|| "*".to_string());
+
+            let cors = if cors_origins_str == "*" {
                 CorsLayer::permissive()
                     .allow_methods(Any)
                     .allow_headers(Any)
             } else {
-                let origins: Vec<_> = env
-                    .cors_origins
+                let origins: Vec<_> = cors_origins_str
                     .split(',')
                     .filter_map(|s| s.parse().ok())
                     .collect();

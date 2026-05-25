@@ -2745,6 +2745,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "service"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "domain",
+ "dotenvy",
+ "infra-http-axum",
+ "infra-mongo",
+ "infra-redis",
+ "opentelemetry 0.32.0",
+ "opentelemetry-gcloud-trace",
+ "opentelemetry_sdk 0.32.0",
+ "rustls",
+ "tokio",
+ "tracing",
+ "tracing-opentelemetry 0.33.0",
+ "tracing-stackdriver",
+ "tracing-subscriber",
+ "usecases",
+]
+
+[[package]]
 name = "sha1"
 version = "0.10.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
