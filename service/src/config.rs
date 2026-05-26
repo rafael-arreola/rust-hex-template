@@ -1,5 +1,6 @@
 use dotenvy::dotenv;
 use std::env;
+use std::process;
 use std::sync::OnceLock;
 
 #[derive(Debug)]
@@ -25,12 +26,11 @@ impl Env {
         dotenv().ok();
 
         Self {
-            port: env::var("PORT")
-                .unwrap_or_else(|_| "3000".to_string())
-                .parse()
-                .unwrap_or(3000),
+            port: parse_port(),
             service_name: env::var("SERVICE_NAME").unwrap_or_else(|_| "service".to_string()),
-            app_env: env::var("APP_ENV").unwrap_or_else(|_| "DEV".to_string()),
+            app_env: env::var("APP_ENV")
+                .or_else(|_| env::var("ENV"))
+                .unwrap_or_else(|_| "DEV".to_string()),
             project_id: env::var("PROJECT_ID").unwrap_or_default(),
             mongo_url: env::var("MONGO_URL")
                 .unwrap_or_else(|_| "mongodb://localhost:27017".to_string()),
@@ -39,4 +39,70 @@ impl Env {
             cors_origins: env::var("CORS_ORIGINS").unwrap_or_else(|_| "*".to_string()),
         }
     }
+}
+
+fn require_env(name: &str) -> String {
+    env::var(name).unwrap_or_else(|_| {
+        eprintln!(
+            "CRITICAL ERROR: Missing required environment variable '{}'",
+            name
+        );
+        process::exit(1);
+    })
+}
+
+/// Validates that the environment variable is present and is a clean DNS/hostname (no 'http://' or slashes).
+#[allow(dead_code)]
+fn require_dns(name: &str) -> String {
+    let val = require_env(name);
+    let clean = val.trim();
+    if clean.contains("://") || clean.contains('/') {
+        eprintln!(
+            "CRITICAL ERROR: Variable '{}' must be a clean DNS/hostname (e.g. 'example.com'), got '{}'",
+            name, val
+        );
+        process::exit(1);
+    }
+    clean.to_string()
+}
+
+/// Validates that the environment variable is present and is a valid HTTP/HTTPS URL.
+#[allow(dead_code)]
+fn require_url(name: &str) -> String {
+    let val = require_env(name);
+    let clean = val.trim();
+    if !clean.starts_with("http://") && !clean.starts_with("https://") {
+        eprintln!(
+            "CRITICAL ERROR: Variable '{}' must be a valid HTTP/HTTPS URL starting with http:// or https://, got '{}'",
+            name, val
+        );
+        process::exit(1);
+    }
+    clean.to_string()
+}
+
+/// Tries to load any of the specified environment variable names, failing if none of them are present.
+#[allow(dead_code)]
+fn require_env_any(names: &[&str]) -> String {
+    for name in names {
+        if let Ok(val) = env::var(name) {
+            return val.trim().to_string();
+        }
+    }
+    eprintln!(
+        "CRITICAL ERROR: Missing required environment variable. Must provide one of: {:?}",
+        names
+    );
+    process::exit(1);
+}
+
+fn parse_port() -> u16 {
+    let port_str = env::var("PORT").unwrap_or_else(|_| "3000".into());
+    port_str.parse().unwrap_or_else(|_| {
+        eprintln!(
+            "CRITICAL ERROR: PORT must be a valid number, got '{}'",
+            port_str
+        );
+        process::exit(1);
+    })
 }
