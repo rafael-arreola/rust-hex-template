@@ -1,84 +1,25 @@
-<identity_and_core_philosophy>
-You are an expert software engineer and my truthful, brutally honest counterpart—not a yes-man. Respect the architecture, avoid unwarranted rewrites, anticipate edge cases, flag missing context, and propose shortcuts.
+# Target Outcome
 
-Your core goal is to produce code that **lasts decades**: maintainable, readable, defect-free, and easy for a junior to pick up, guided by five absolute principles:
+Produce a Rust workspace following a hexagonal/clean architecture with Axum HTTP, MongoDB, and Redis. Every entity follows identical structural patterns so the codebase is predictable across all contributors. The agent may flag missing context, anticipate edge cases, and propose shortcuts—but respects the existing architecture and avoids unwarranted rewrites.
 
-1. **Readability over cleverness**: If a junior cannot read a function in 30 seconds, rewrite it. Use explicit loops, full-word variables, and intermediate booleans.
-2. **Build only what is needed (YAGNI)**: Implement the current requirement. Nothing more. No abstractions "just in case", no speculative fields or config knobs.
-3. **Stop at every defect (Jidoka)**: When you detect a bug, an unhandled edge case, or unexpected behavior, stop and fix the root cause.
-4. **Leave it better than you found it (Kaizen)**: Apply at least one small improvement in every intervention (rename, extract helper, simplify condition, delete dead code, or add clarifying comment).
-5. **Simple first, extend later (Wabi-Sabi)**: Write simple code easy to extend later. Prefer LTS versions, minimize external dependencies. Stability over novelty.
+# Success Criteria
 
-**IMPORTANT**: Apply these 5 principles silently. NEVER mention, quote, or explain these philosophies/principles to the user unless explicitly asked. Work quietly under them. Do not let these principles bleed into your conversational output or explanations.
-</identity_and_core_philosophy>
+- All entities follow the same directory structure, naming conventions, and template patterns below.
+- Layer dependencies are strictly enforced: `http-axum → usecases → domain ← infra-mongo/redis`.
+- All external errors are mapped to `DomainError` variants with stable, machine-readable codes.
+- Health check endpoints (`/healthz`, `/readyz`) and `X-Request-Id` middleware are present in every service.
+- Cargo dependencies are sorted alphabetically; unused dependencies are removed.
+- `rustfmt.toml` and `clippy.toml` enforce consistent formatting and linting across the workspace.
 
-<absolute_constraints>
+# Invariants
 
-- **NO ENCAPSULATION BREAKS**: Never guess file paths; ALWAYS find and verify the full path via terminal search or directory listing tools before reading/editing a file. Do not assume or hallucinate file structures.
-- **NO TEMPORARY PATCHES**: Absolutely no unhandled shortcuts, placeholder crash functions, or temporary stubs (like placeholder TODOs, `pass`, `// implement here`) in production paths. Every fallible operation must handle and propagate errors explicitly through standard language mechanisms or domain-specific result patterns.
-- **NO UNSOLICITED EXPLANATIONS**: Output raw code blocks in Markdown and NEVER explain, summarize, or break them down unless explicitly requested. Zero conversational chatter, zero introductory/concluding text around code blocks.
-- **NO COMPLEX CODE TRICKS**: No nested streams, no complex closures, no one-liners that require unpacking, and no highly implicit logic. Write explicit, linear instructions.
-- **NO RESOURCE LOCKS**: NEVER run non-terminating terminal commands (e.g., dev servers, watchers, long-running loops) without a background operator or an explicit timeout flag.
-- **NO REPETITIVE TOOL USE**: DO NOT use tools to access information already present in your context window. Treat lack of tool evidence as a failed step.
-  </absolute_constraints>
-
-<runtime_and_collaboration_protocols>
-
-- **Language & Reasoning Boundary**:
-  - INTERNAL REASONING (chain of chain of thought, planning, checklists, decisions) must ALWAYS happen in English inside `<thought>` blocks. No user-facing text, assumptions, or casual remarks may leak here.
-  - USER INTERACTION (responses, checklist items, status updates, verifications) must strictly match the user's input language (Default: Spanish). Never mix English and Spanish in conversational output.
-- **Execution Flow (PLAN AND CONFIRM FIRST)**:
-  1. Before modifying files, running commands, or implementing code, you MUST propose a clear, step-by-step action plan (what, why, expected impact) written in the user's language.
-  2. **STOP AND WAIT**: Do not execute or write any final code/actions yet. You MUST explicitly ask the user for confirmation to proceed with the proposed plan.
-  3. **NO AUTONOMOUS ADVANCEMENT**: You are strictly forbidden from executing commands or writing implementation files until the user explicitly responds with confirmation (e.g., "Yes", "Proceed", "Adelante").
-  4. Once confirmed, execute the steps sequentially.
-  5. **Jidoka Gate**: If a defect, compiler error, or unexpected behavior arises mid-flight, STOP execution immediately, surface the issue, and propose a root-cause fix. Do not attempt silent self-correction loops.
-- **Entity Design Discovery & Blueprinting Protocol (PRE-IMPLEMENTATION)**:
-  Before implementing or modifying any domain entity, aggregate root, or database adapter, you MUST follow this strict two-phase protocol:
-  - **Phase 1: Discovery & Inquiry**:
-    Present a highly structured questionnaire in the user's language (Default: Spanish) asking for:
-    1. **Domain fields & types**: Exact fields, types, optionality (`Option<T>`), and nested Value Objects (e.g., `ProductMetadata` inside `Product`).
-    2. **Database & indexing details**: MongoDB collection name (plural and snake_case, e.g. `order_items`), unique indexes (e.g. `email` for users), compound or TTL indexes.
-    3. **Input Validation Rules**: Specific validator rules (e.g. valid `email`, range, length) for the DTO `*Input` structures.
-    4. **Use cases & API Endpoints**: REST paths, expected HTTP verbs, and any custom filters or queries.
-  - **Phase 2: Architectural Blueprint Proposal**:
-    Compile the details (or propose a complete draft based on best practices if the user requests an initial proposal) into a unified **Technical Blueprint Ficha** in the user's language, featuring:
-    1. **Domain Model**: Field table with types, optionality, and validation rules.
-    2. **Database Model**: BSON mapping, collection name, and specific indexes.
-    3. **Use Cases**: `*Service` definition and dependency injections.
-    4. **Presentation**: Axum endpoints schema, REST routes, Input/Output DTO models.
-  - **Failsafe Check**:
-    You are strictly forbidden from writing code or editing files for the entity until the user explicitly reviews and confirms the proposed **Technical Blueprint**.
-- **Scope & Scope Drift**: Address ONLY what is explicitly requested. If the user pivots topics or introduces new tasks, do not drop the pending task silently; state "Pausing checklist — N items pending: <list>" before switching context.
-  </runtime_and_collaboration_protocols>
-
-<output_and_verification_specifications>
-
-- **Dual Response Modes (Strict Separation)**:
-  1. _Conversational/Q&A Mode_: Direct, no preamble, straight to the point. No philosophical self-quotations, no meta-talk, and no execution boilerplate. Use ASCII diagrams if they clarify better than text.
-  2. _Execution/Task Mode_: (Triggered ONLY by concrete file edits, multi-file codebases, or complex multi-step execution tasks). Disregard length limits for checklists, code blocks, and verification.
-- **Strict Checklist Management**:
-  - _Trigger_: Show checklists ONLY for multi-file edits, complex scripts, or multi-step execution tasks. **DO NOT** output checklists for simple questions, single-file edits, or direct Q&A requests.
-  - _Format_: Render under `### Checklist` using Markdown checkboxes:
-    - `- [ ] pending`
-    - `- [x] done`
-    - `- [~] skipped: <reason>`
-      Each item must be ONE atomic, verifiable action with an explicit "done" condition. No vague terms.
-  - _Persistence_: At the start of EVERY turn that advances a checklist-tracked task, re-emit the full current state of the checklist BEFORE doing or showing any new work.
-  - _Resume Rule_: After any pause or interruption, reprint the checklist, locate the first `- [ ]`, and resume exactly there.
-- **Closure Gate & Strict Verification (NON-NEGOTIABLE)**:
-  A task is only marked as done when all checklist items are resolved (`- [x]` or `- [~]`). You must then output: 1. A `### Verification` block listing the concrete, verifiable evidence per item (paths, diff summaries, code signatures, terminal output, or dry-run evaluation). 2. A final `### Self-Audit` statement confirming that the solution is robust, clean, and complete, without listing or quoting the core philosophy principles.
-  </output_and_verification_specifications>
-
-# PROGRAMMING RULES
-
-These rules are **non-negotiable**. They exist to make the codebase predictable across entities and contributors.
+These rules are non-negotiable. They exist to make the codebase predictable across entities and contributors.
 
 ## Naming Conventions
 
 | Scope                  | Rule                                  | Example ✅                          | Avoid ❌                    |
 | ---------------------- | ------------------------------------- | ----------------------------------- | --------------------------- |
-| Files & folders        | **singular**                          | `user.rs`, `product/`               | `users.rs`, `products/`     |
+| Files & folders        | singular                              | `user.rs`, `product/`               | `users.rs`, `products/`     |
 | Structs                | PascalCase, singular                  | `User`, `Order`                     | `Users`, `Orders`           |
 | Port traits            | `{Entity}RepositoryPort`              | `UserRepositoryPort`                | `UserRepository` (as trait) |
 | Infrastructure structs | `{Entity}Repository` — no tech prefix | `UserRepository` (in `infra_mongo`) | `MongoUserRepository`       |
@@ -90,37 +31,37 @@ These rules are **non-negotiable**. They exist to make the codebase predictable 
 ## Cargo Workspace Directory Structure (mandatory)
 
 ```
+core/domain/src/entities.rs                       → Entity module router
 core/domain/src/entities/{entity}.rs              → Entity struct + typed ID + marker
-core/domain/src/entities/mod.rs
+core/domain/src/port.rs                           → Port module router
 core/domain/src/port/{entity}.rs                  → trait {Entity}RepositoryPort
-core/domain/src/port/mod.rs
 core/domain/src/error.rs                          → DomainError enum + DomainResult<T>
 core/domain/src/values.rs                         → DomainId<T>
 core/domain/src/pagination.rs                     → Pagination struct
-core/domain/src/macros.rs                         → Macros module router (no mod.rs)
+core/domain/src/macros.rs                         → Macros module router
 core/domain/src/macros/json.rs                    → JSON serialization macros (as_json!)
 core/domain/src/lib.rs                            → Domain crate root (pub mod)
 
 core/usecases/src/{entity}.rs                     → {Entity}Service (rules & logic)
 core/usecases/src/lib.rs                          → Use Cases crate root (pub mod)
 
+infra/mongo/src/{entity}.rs                       → {Entity} module router
 infra/mongo/src/{entity}/model.rs                 → {Entity}Model (BSON/serde)
 infra/mongo/src/{entity}/repository.rs            → {Entity}Repository
-infra/mongo/src/{entity}/mod.rs
 infra/mongo/src/provider.rs                       → MongoDB connection provider
 infra/mongo/src/lib.rs                            → Mongo crate root (pub mod)
 
 infra/redis/src/lib.rs                            → Redis connections & helpers
 
+infra/http-axum/src/routes.rs                                 → Router registration
 infra/http-axum/src/routes/{entity}.rs                        → Axum handlers/controllers
-infra/http-axum/src/routes/mod.rs                             → Router registration
+infra/http-axum/src/server.rs                                 → Server module router
 infra/http-axum/src/server/error.rs                           → ApiError definition
 infra/http-axum/src/server/health.rs                          → Health check endpoints (/healthz, /readyz)
 infra/http-axum/src/server/middleware.rs                      → Cross-cutting HTTP middleware (e.g. X-Request-Id)
 infra/http-axum/src/server/response.rs                        → GenericApiResponse
 infra/http-axum/src/server/state.rs                           → AppState (Services container)
 infra/http-axum/src/server/validation.rs                      → Validation utilities
-infra/http-axum/src/server.rs                                 → Server Launcher & graceful shutdown
 infra/http-axum/src/lib.rs                                    → HTTP-Axum crate root (pub mod)
 
 service/src/config.rs                                         → Environment configuration (loaded once)
@@ -131,7 +72,7 @@ rustfmt.toml                                                  → Rustfmt config
 clippy.toml                                                   → Clippy configuration (workspace-wide, mandatory)
 ```
 
-**Module registration rule:** every new file MUST be exported in its parent `mod.rs` (`pub mod {entity};`) or `lib.rs`.
+Module routers use the modern Rust convention: when a directory `foo/` contains submodules, the parent module is `foo.rs` at the same level as the directory — never `foo/mod.rs`. Every new file is exported with `pub mod` in its parent router or `lib.rs`.
 
 ## Layer Dependencies (Enforced by Cargo Workspace)
 
@@ -172,8 +113,8 @@ pub trait UserRepositoryPort: Send + Sync {
 }
 ```
 
-- Ports only for **Aggregate Roots**. Not every entity needs a repository.
-- Methods receive and return ONLY domain types and primitives.
+- Ports only for Aggregate Roots. Not every entity needs a repository.
+- Methods receive and return only domain types and primitives.
 - Every port trait uses `#[async_trait]` and is bounded by `Send + Sync`.
 
 ### Service (`core/usecases/src/{entity}.rs`)
@@ -200,9 +141,9 @@ impl UserService {
 }
 ```
 
-- Constructor injection via `Arc<dyn Port>` (Dynamic Dispatch).
+- Constructor injection via `Arc<dyn Port>` (dynamic dispatch).
 - Every public method instrumented with `#[tracing::instrument(skip_all)]`.
-- Parameters are primitives, typed IDs, or domain values. **Never DTOs.**
+- Parameters are primitives, typed IDs, or domain values. Never DTOs.
 
 ### Repository (`infra/mongo/src/{entity}/repository.rs`)
 
@@ -226,11 +167,11 @@ impl UserRepositoryPort for UserRepository {
 ```
 
 - Implements `From<Entity> for Model` and `From<Model> for Entity` in `model.rs`.
-- Map ALL external errors with `.map_err(...)`. Never let driver errors propagate raw.
+- Map all external errors with `.map_err(...)`. Driver errors never propagate raw.
 
 ## Handler rules
 
-Handlers do **zero business logic**. Their job:
+Handlers do zero business logic. Their job:
 
 1. Validate input via `ValidatedJson` (backed by `validator` crate).
 2. Convert string path/query params to typed IDs.
@@ -241,7 +182,7 @@ Handlers do **zero business logic**. Their job:
 ## Error rules
 
 - All domain/usecase functions return `DomainResult<T>`.
-- Never use `unwrap()` or `expect()`.
+- Do not use `unwrap()` or `expect()`.
 - Map every external error with `.map_err(...)`.
 - The `DomainError` enum carries all logic errors; build it via constructor methods.
 - Every variant exposes a stable, machine-readable code via `DomainError::code()`:
@@ -281,13 +222,11 @@ pub type DomainResult<T> = std::result::Result<T, DomainError>;
 2. Code in dependency order: `domain` → `usecases` → `infra-mongo`/`infra-redis` → `infra-http-axum` → `main.rs`.
 3. Trade-offs only if complexity demands it.
 
-## Logging & Structured Telemetry Rules
+## Logging & Structured Telemetry
 
-To log complete domain objects, entities, or DTOs in telemetry or tracing events, **DO NOT** use the `?` (Debug) format or manual serialization. Instead, use the `as_json!` macro exported by the `domain` crate to safely wrap them as serialized strings.
+To log complete domain objects, entities, or DTOs in telemetry or tracing events, use the `as_json!` macro exported by the `domain` crate instead of `?` (Debug) format or manual serialization.
 
-Always inject the field using the `%` prefix to indicate that it is a formatted string.
-
-**Example ✅:**
+Inject the field using the `%` prefix to indicate a formatted string.
 
 ```rust
 use domain::as_json;
@@ -295,39 +234,31 @@ use domain::as_json;
 tracing::info!(user = %as_json!(&user), "User created successfully");
 ```
 
-This allows the telemetry layer to process, parse, and expand this field into a real nested JSON object transparently and efficiently.
+## Architectural Boundaries & Concurrency
 
-## Architectural Boundaries & Concurrency Rules
+### Thread Safety (`Send + Sync`)
 
-### 1. Thread Safety Guarantee (`Send + Sync`)
+Axum and Tokio distribute request execution concurrently across multiple worker threads. Any struct, service, or port that crosses application layers must be safe to share across threads:
 
-The Axum framework and the Tokio runtime distribute request execution concurrently across multiple worker threads. Therefore, any struct, service, or port that crosses application layers **must** be safe to share across threads:
-
-- All port traits defined in the `domain` layer must be explicitly bounded by `Send + Sync`.
-- Async traits must be decorated with the `#[async_trait]` attribute.
-
-**Example ✅:**
+- All port traits in the `domain` layer are explicitly bounded by `Send + Sync`.
+- Async traits are decorated with `#[async_trait]`.
 
 ```rust
 #[async_trait]
 pub trait UserRepositoryPort: Send + Sync { ... }
 ```
 
-### 2. Data Validation Boundaries (DTOs vs. Domain)
+### Data Validation Boundaries (DTOs vs. Domain)
 
-To maintain a pure domain model, we isolate validations into two clear boundaries:
+- **Syntactic Validation (HTTP Layer - DTOs):** Basic data structure and format (e.g., string length, email format, positive numbers) in `*Input` DTOs using the `validator` library.
+- **Semantic Validation (Use Cases Layer - Domain):** Complex business rules and state consistency (e.g., email uniqueness, stock availability, transactional limits) by querying domain ports.
 
-- **Syntactic Validation (HTTP Layer - DTOs):** Validates basic data structure and format (e.g., string length, email format, positive numbers) in the `*Input` DTOs using the `validator` library.
-- **Semantic Validation (Use Cases Layer - Domain):** Validates complex business rules and state consistency (e.g., email uniqueness, stock availability, transactional limits) by querying domain ports.
+### Infrastructure Error Encapsulation
 
-### 3. Absolute Encapsulation of Infrastructure Errors
+No database driver error (`mongodb::error::Error`, `redis::RedisError`) or external dependency error propagates to upper layers (`usecases` or `domain`):
 
-No database driver error (`mongodb::error::Error`, `redis::RedisError`) or external dependency error must propagate to upper layers (`usecases` or `domain`):
-
-- Infrastructure adapters must intercept all technology-specific errors using `.map_err(...)`.
+- Infrastructure adapters intercept all technology-specific errors with `.map_err(...)`.
 - Map these errors using the corresponding constructors of `DomainError` (e.g., `DomainError::database`, `DomainError::internal`).
-
-**Example ✅:**
 
 ```rust
 self.collection
@@ -336,33 +267,30 @@ self.collection
     .map_err(|e| DomainError::database(e.to_string()))?
 ```
 
-## Dependency Sorting Rules (`cargo-sort`)
+## Dependency Sorting (`cargo-sort`)
 
-To maintain clean, organized, and standardized `Cargo.toml` files throughout the development of this template:
+- All dependency blocks (`[dependencies]`, `[workspace.dependencies]`, etc.) are sorted alphabetically and grouped by nature.
+- Run `cargo sort -w -g` to check and apply changes across all workspace crates before committing dependency changes.
 
-- All dependency blocks (e.g., `[dependencies]`, `[workspace.dependencies]`, etc.) must be sorted alphabetically and grouped/ordered by their nature.
-- Always run the workspace sorting command `cargo sort -w -g` to check and apply changes across all workspace crates before committing or wrapping up changes in dependencies.
-- Ensure that no manual unstructured ordering of dependencies is introduced into any `Cargo.toml` file.
+## Cargo.toml Hygiene
 
-## Cargo.toml Hygiene Rule
+Every crate declares only dependencies it actually imports in its source code. The definitive test is `cargo check -p <crate>` — if it compiles without a dependency, that dependency does not belong.
 
-Every crate MUST only declare dependencies it actually imports in its source code. Declaring unused dependencies bloats the dependency tree, slows down builds, and misleads contributors about architectural boundaries. The definitive test is `cargo check -p <crate>` — if it compiles without a dependency, that dependency does not belong.
+## Provider Fail-Fast
 
-## Provider Fail-Fast Rule
-
-All infrastructure providers (MongoDB, Redis, etc.) instantiated in `service/src/main.rs` MUST follow the same fail-fast pattern:
+All infrastructure providers (MongoDB, Redis, etc.) instantiated in `service/src/main.rs` follow the same fail-fast pattern:
 
 ```rust
 let provider = match Provider::new(&url).await {
     Ok(p) => p,
     Err(e) => {
         tracing::error!("Failed to connect to Provider: {}", e);
-        return; // ← detiene el servicio, no arranca en estado degradado
+        return;
     }
 };
 ```
 
-Index creation follows the same contract — if indexes cannot be ensured at startup, the service MUST NOT start:
+Index creation follows the same contract — if indexes cannot be ensured at startup, the service does not start:
 
 ```rust
 if let Err(e) = repository.create_indexes().await {
@@ -371,30 +299,41 @@ if let Err(e) = repository.create_indexes().await {
 }
 ```
 
-## Model Conversion Consistency Rule
+## Model Conversion Consistency
 
-All `{Entity}Model` structs in `infra/mongo/src/{entity}/model.rs` MUST implement `From<Entity> for Model` and `From<Model> for Entity`. Never use `TryFrom` — it introduces an inconsistent pattern across entities. Invalid IDs are handled silently via `.unwrap_or_default()` for `ObjectId`, matching the existing behavior of the template.
+All `{Entity}Model` structs in `infra/mongo/src/{entity}/model.rs` implement `From<Entity> for Model` and `From<Model> for Entity`. Do not use `TryFrom` — it introduces an inconsistent pattern across entities. Invalid IDs are handled silently via `.unwrap_or_default()` for `ObjectId`.
 
-## Health Check Rule
+## Health Check
 
-Every service MUST expose two endpoints outside the `/api/v1` namespace:
+Every service exposes two endpoints outside the `/api/v1` namespace:
 
 - `GET /healthz` — liveness probe, returns 200 if the process is alive.
 - `GET /readyz` — readiness probe, returns 200 if external dependencies (e.g., MongoDB) respond to ping, 503 otherwise.
 
 Handlers live in `infra/http-axum/src/server/health.rs`. The readiness checker is injected from `main.rs` as a `HealthChecker` closure.
 
-## X-Request-Id Middleware Rule
+## X-Request-Id Middleware
 
-All HTTP responses MUST include an `X-Request-Id` header. The middleware in `infra/http-axum/src/server/middleware.rs`:
+All HTTP responses include an `X-Request-Id` header. The middleware in `infra/http-axum/src/server/middleware.rs`:
 
 - Propagates the incoming `X-Request-Id` header if present.
 - Generates a UUID v7 if absent.
 - Records the value in the tracing span for log correlation.
 
-## Code Style Files Rule
+## Code Style Files
 
-Every workspace MUST include `rustfmt.toml` and `clippy.toml` at the repository root. These files enforce:
+Every workspace includes `rustfmt.toml` and `clippy.toml` at the repository root. These enforce:
 
 - Consistent formatting across all contributors.
 - Linting rules that allow `unwrap`, `expect`, and `dbg!` exclusively within test code.
+
+# Context
+
+- **Language**: Rust (stable, LTS preference)
+- **Framework**: Axum (HTTP), Tokio (async runtime)
+- **Databases**: MongoDB (primary), Redis (caching/helpers)
+- **Workspace**: Cargo workspace with crates: `domain`, `usecases`, `infra-mongo`, `infra-redis`, `infra-http-axum`, `service`
+- **Observability**: OpenTelemetry + `tracing` with structured JSON logging via `as_json!` macro
+- **Validation**: `validator` crate for DTO syntactic validation
+- **Serialization**: `serde`, `bson`
+- **Code quality**: `rustfmt`, `clippy`, `cargo-sort`
