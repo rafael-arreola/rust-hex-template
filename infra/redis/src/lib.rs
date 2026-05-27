@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 use redis::aio::MultiplexedConnection;
 
 #[derive(Clone)]
@@ -9,9 +8,7 @@ pub struct RedisProvider {
 
 impl std::fmt::Debug for RedisProvider {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("RedisProvider")
-            .field("connection", &"<MultiplexedConnection>")
-            .finish()
+        f.debug_struct("RedisProvider").field("connection", &"<MultiplexedConnection>").finish()
     }
 }
 
@@ -22,16 +19,15 @@ impl RedisProvider {
 
         redis::cmd("PING").query_async::<()>(&mut conn).await?;
 
-        Ok(RedisProvider {
-            connection: conn,
-            prefix: prefix.to_string(),
-        })
+        Ok(RedisProvider { connection: conn, prefix: prefix.to_string() })
     }
 
+    #[allow(dead_code)]
     pub fn connection(&self) -> MultiplexedConnection {
         self.connection.clone()
     }
 
+    #[allow(dead_code)]
     pub fn get_path(&self, key: &[&str]) -> String {
         format!("{}:{}", self.prefix, key.join(":"))
     }

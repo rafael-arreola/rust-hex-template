@@ -21,11 +21,7 @@ impl OrderService {
         user_repo: Arc<dyn UserRepositoryPort>,
         product_repo: Arc<dyn ProductRepositoryPort>,
     ) -> Self {
-        Self {
-            order_repo,
-            user_repo,
-            product_repo,
-        }
+        Self { order_repo, user_repo, product_repo }
     }
 
     #[tracing::instrument(skip_all, fields(%user_id, %product_id, %quantity))]
@@ -55,10 +51,7 @@ impl OrderService {
 
         let total_price = product.price * (quantity as f64);
 
-        let pid = product
-            .id
-            .as_ref()
-            .ok_or_else(|| DomainError::internal("Product missing ID"))?;
+        let pid = product.id.as_ref().ok_or_else(|| DomainError::internal("Product missing ID"))?;
 
         let stock_updated = self.product_repo.update_stock(pid, -quantity).await?;
         if !stock_updated {
@@ -101,6 +94,21 @@ impl OrderService {
     #[tracing::instrument(skip_all)]
     pub async fn list_orders(&self, pagination: Pagination) -> DomainResult<Vec<Order>> {
         self.order_repo.find_all(pagination).await
+    }
+
+    #[tracing::instrument(skip_all)]
+    pub async fn count_orders(&self) -> DomainResult<u64> {
+        self.order_repo.count().await
+    }
+
+    #[tracing::instrument(skip_all, fields(%id))]
+    pub async fn delete_order(&self, id: &OrderId) -> DomainResult<()> {
+        let deleted = self.order_repo.delete(id).await?;
+        if !deleted {
+            return Err(DomainError::not_found("Order", id.to_string()));
+        }
+        tracing::info!("Order soft-deleted");
+        Ok(())
     }
 
     #[tracing::instrument(skip_all, fields(%user_id))]

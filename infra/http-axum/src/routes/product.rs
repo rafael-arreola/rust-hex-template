@@ -1,7 +1,10 @@
 pub mod dtos;
 
 use crate::server::{
-    error::ApiError, response::GenericApiResponse, state::AppState, validation::ValidatedJson,
+    error::ApiError,
+    response::{GenericApiResponse, GenericPagination},
+    state::AppState,
+    validation::ValidatedJson,
 };
 use axum::{
     Router,
@@ -65,15 +68,15 @@ pub async fn get_product(
 pub async fn list_products(
     State(service): State<Arc<ProductService>>,
     Query(query): Query<ProductQuery>,
-) -> Result<GenericApiResponse<Vec<ProductOutput>>, ApiError> {
-    let pagination = Pagination {
-        page: query.page.unwrap_or(1),
-        limit: query.limit.unwrap_or(20),
-    };
+) -> Result<GenericApiResponse<GenericPagination<ProductOutput>>, ApiError> {
+    let page = query.page.unwrap_or(1);
+    let limit = query.limit.unwrap_or(20);
+    let pagination = Pagination { page, limit };
 
     let products = service.list_products(pagination).await?;
-    let dtos = products.into_iter().map(Into::into).collect();
-    Ok(GenericApiResponse::success(dtos))
+    let total = service.count_products().await?;
+    let dtos: Vec<ProductOutput> = products.into_iter().map(Into::into).collect();
+    Ok(GenericApiResponse::paginated(dtos, total, page, limit))
 }
 
 #[tracing::instrument(skip_all)]

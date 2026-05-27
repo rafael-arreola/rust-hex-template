@@ -80,6 +80,11 @@ impl ProductService {
         Ok(())
     }
 
+    #[tracing::instrument(skip_all)]
+    pub async fn count_products(&self) -> DomainResult<u64> {
+        self.repo.count().await
+    }
+
     #[tracing::instrument(skip_all, fields(%id, %quantity))]
     pub async fn decrement_stock(&self, id: &ProductId, quantity: i32) -> DomainResult<()> {
         let product = self.get_product(id).await?;
