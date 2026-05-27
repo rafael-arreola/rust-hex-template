@@ -1,3 +1,4 @@
+use crate::server::error::ApiErrorPayload;
 use axum::{
     Json,
     http::StatusCode,
@@ -23,7 +24,7 @@ pub struct GenericApiResponse<T> {
     pub data: Option<T>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub cause: Option<String>,
+    pub error: Option<ApiErrorPayload>,
 
     #[serde(skip)]
     pub status: StatusCode,
@@ -55,16 +56,16 @@ impl<T> GenericApiResponse<T> {
         Self {
             trace_id: Self::get_current_trace_id(),
             data: Some(data),
-            cause: None,
+            error: None,
             status: StatusCode::OK,
         }
     }
 
-    pub fn error(cause: String, status: StatusCode) -> Self {
+    pub fn error(code: &'static str, message: String, status: StatusCode) -> Self {
         Self {
             trace_id: Self::get_current_trace_id(),
             data: None,
-            cause: Some(cause),
+            error: Some(ApiErrorPayload { code, message }),
             status,
         }
     }
@@ -89,13 +90,8 @@ impl<T: Serialize> GenericApiResponse<GenericPagination<T>> {
     pub fn paginated(data: Vec<T>, total: u64, page: u32, limit: u32) -> Self {
         GenericApiResponse {
             trace_id: Self::get_current_trace_id(),
-            data: Some(GenericPagination {
-                data,
-                total,
-                page,
-                limit,
-            }),
-            cause: None,
+            data: Some(GenericPagination { data, total, page, limit }),
+            error: None,
             status: StatusCode::OK,
         }
     }

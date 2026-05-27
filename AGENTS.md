@@ -243,7 +243,8 @@ Handlers do **zero business logic**. Their job:
 - All domain/usecase functions return `DomainResult<T>`.
 - Never use `unwrap()` or `expect()`.
 - Map every external error with `.map_err(...)`.
-- The `DomainError` enum carries all logic errors; build it via constructor methods:
+- The `DomainError` enum carries all logic errors; build it via constructor methods.
+- Every variant exposes a stable, machine-readable code via `DomainError::code()`:
 
 ```rust
 #[derive(Error, Debug)]
@@ -257,8 +258,22 @@ pub enum DomainError {
     #[error("Internal: {0}")]
     Internal(String),
 }
+
+impl DomainError {
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::NotFound { .. } => "NOT_FOUND",
+            Self::AlreadyExists { .. } => "ALREADY_EXISTS",
+            Self::Invalid { .. } => "INVALID_INPUT",
+            Self::Internal(_) => "INTERNAL_ERROR",
+        }
+    }
+}
 pub type DomainResult<T> = std::result::Result<T, DomainError>;
 ```
+
+- `ApiError` in the HTTP layer is a struct — not an enum — with `code`, `message`, and `status`. The `From<DomainError>` mapping centralizes the code-to-status relationship in one place.
+- Error responses follow the shape `{ "trace_id": "...", "error": { "code": "NOT_FOUND", "message": "..." } }`.
 
 ## Response format
 

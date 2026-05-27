@@ -20,11 +20,9 @@ where
     async fn from_request(req: Request, state: &S) -> Result<Self, Self::Rejection> {
         let Json(value) = Json::<T>::from_request(req, state)
             .await
-            .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+            .map_err(|e| ApiError::bad_request(e.to_string()))?;
 
-        value
-            .validate()
-            .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+        value.validate().map_err(|e| ApiError::bad_request(e.to_string()))?;
 
         Ok(ValidatedJson(value))
     }

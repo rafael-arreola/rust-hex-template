@@ -6,10 +6,7 @@ pub enum DomainError {
     NotFound { entity: &'static str, id: String },
 
     #[error("{entity} already exists: {details}")]
-    AlreadyExists {
-        entity: &'static str,
-        details: String,
-    },
+    AlreadyExists { entity: &'static str, details: String },
 
     #[error("Invalid {field}: {reason}")]
     Invalid { field: &'static str, reason: String },
@@ -37,11 +34,24 @@ pub enum DomainError {
 }
 
 impl DomainError {
-    pub fn not_found(entity: &'static str, id: impl Into<String>) -> Self {
-        Self::NotFound {
-            entity,
-            id: id.into(),
+    /// Returns a stable, machine-readable code for every error variant.
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::NotFound { .. } => "NOT_FOUND",
+            Self::AlreadyExists { .. } => "ALREADY_EXISTS",
+            Self::Invalid { .. } => "INVALID_INPUT",
+            Self::Required { .. } => "REQUIRED_FIELD",
+            Self::Unauthorized(_) => "UNAUTHORIZED",
+            Self::Forbidden(_) => "FORBIDDEN",
+            Self::BusinessRule(_) => "BUSINESS_RULE_VIOLATION",
+            Self::ExternalService { .. } => "EXTERNAL_SERVICE_UNAVAILABLE",
+            Self::Database(_) => "INTERNAL_ERROR",
+            Self::Internal(_) => "INTERNAL_ERROR",
         }
+    }
+
+    pub fn not_found(entity: &'static str, id: impl Into<String>) -> Self {
+        Self::NotFound { entity, id: id.into() }
     }
 
     pub fn duplicate(entity: &'static str, field: &'static str, value: impl Into<String>) -> Self {
@@ -56,10 +66,7 @@ impl DomainError {
         entity: &'static str,
         value: impl Into<String>,
     ) -> Self {
-        Self::Invalid {
-            field: param,
-            reason: format!("Invalid {} ID: {}", entity, value.into()),
-        }
+        Self::Invalid { field: param, reason: format!("Invalid {} ID: {}", entity, value.into()) }
     }
 
     pub fn business_rule(message: impl Into<String>) -> Self {
