@@ -29,9 +29,6 @@ steps:
       - "--set-env-vars=SERVICE_NAME=$_SERVICE_NAME"
       - "--set-env-vars=PROJECT_ID=$PROJECT_ID"
       # Configure sus secretos y envs adicionales manualmente o vía sustituciones
-      - "--ingress=internal-and-cloud-load-balancing"
-      - "--network=projects/shared-resources-451520/global/networks/$_VPC_CONNECTOR"
-      - "--subnet=projects/shared-resources-451520/regions/us-central1/subnetworks/$_VPC_CONNECTOR_SUBNET"
 
 substitutions:
   _APP_ENV: "PRD"
