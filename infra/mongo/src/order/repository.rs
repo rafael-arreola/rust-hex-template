@@ -59,7 +59,7 @@ impl OrderRepository {
 impl OrderRepositoryPort for OrderRepository {
     #[tracing::instrument(skip_all)]
     async fn create(&self, order: &Order) -> DomainResult<OrderId> {
-        let model = OrderModel::try_from(order.clone()).map_err(DomainError::internal)?;
+        let model = OrderModel::from(order.clone());
 
         let result = self
             .collection

@@ -1,15 +1,19 @@
 pub mod error;
+pub mod health;
+pub mod middleware;
 pub mod response;
 pub mod state;
 pub mod validation;
 
-use axum::{Router, extract::DefaultBodyLimit};
+use axum::Router;
 use axum::{
     body::Body,
+    extract::DefaultBodyLimit,
     http::{HeaderValue, Request, Response, header},
-    middleware::{self, Next},
+    routing::get,
 };
 use std::net::SocketAddr;
+use std::time::Duration;
 use tokio::signal;
 use tower_http::{
     compression::CompressionLayer,
@@ -18,22 +22,21 @@ use tower_http::{
     trace::TraceLayer,
 };
 
+use self::health::{healthz, readyz};
 use self::state::AppState;
 use crate::routes;
 
+#[derive(Clone)]
 pub struct ServerLauncher {
     state: AppState,
     http_port: Option<u16>,
     cors_origins: Option<String>,
+    drain_timeout: Duration,
 }
 
 impl ServerLauncher {
     pub fn new(state: AppState) -> Self {
-        Self {
-            state,
-            http_port: None,
-            cors_origins: None,
-        }
+        Self { state, http_port: None, cors_origins: None, drain_timeout: Duration::from_secs(10) }
     }
 
     pub fn with_http(mut self, port: u16) -> Self {
@@ -46,31 +49,33 @@ impl ServerLauncher {
         self
     }
 
+    pub fn with_drain_timeout(mut self, secs: u64) -> Self {
+        self.drain_timeout = Duration::from_secs(secs);
+        self
+    }
+
     pub async fn run(self) {
         if let Some(port) = self.http_port {
             let state = self.state.clone();
+            let drain_timeout = self.drain_timeout;
 
             let cors_origins_str = self.cors_origins.unwrap_or_else(|| "*".to_string());
 
             let cors = if cors_origins_str == "*" {
-                CorsLayer::permissive()
-                    .allow_methods(Any)
-                    .allow_headers(Any)
+                CorsLayer::permissive().allow_methods(Any).allow_headers(Any)
             } else {
-                let origins: Vec<_> = cors_origins_str
-                    .split(',')
-                    .filter_map(|s| s.parse().ok())
-                    .collect();
+                let origins: Vec<_> =
+                    cors_origins_str.split(',').filter_map(|s| s.parse().ok()).collect();
 
-                CorsLayer::new()
-                    .allow_methods(Any)
-                    .allow_headers(Any)
-                    .allow_origin(origins)
+                CorsLayer::new().allow_methods(Any).allow_headers(Any).allow_origin(origins)
             };
 
             let rest_router = Router::new()
+                .route("/healthz", get(healthz))
+                .route("/readyz", get(readyz))
                 .nest("/api/v1", routes::app_router())
-                .layer(middleware::from_fn(msgpack_negotiation))
+                .layer(axum::middleware::from_fn(msgpack_negotiation))
+                .layer(axum::middleware::from_fn(middleware::request_id))
                 .layer(TraceLayer::new_for_http())
                 .layer(CompressionLayer::new())
                 .layer(RequestDecompressionLayer::new())
@@ -79,12 +84,16 @@ impl ServerLauncher {
                 .with_state(state);
 
             let rest_addr = SocketAddr::from(([0, 0, 0, 0], port));
-            tracing::info!("REST Server listening on {}", rest_addr);
+            tracing::info!(
+                "REST Server listening on {} (drain_timeout={:?})",
+                rest_addr,
+                drain_timeout,
+            );
 
             match tokio::net::TcpListener::bind(rest_addr).await {
                 Ok(listener) => {
                     if let Err(e) = axum::serve(listener, rest_router)
-                        .with_graceful_shutdown(shutdown_signal("REST"))
+                        .with_graceful_shutdown(shutdown_signal("REST", drain_timeout))
                         .await
                     {
                         tracing::error!("Server error: {}", e);
@@ -98,12 +107,11 @@ impl ServerLauncher {
     }
 }
 
-pub async fn msgpack_negotiation(req: Request<Body>, next: Next) -> Response<Body> {
-    let accept = req
-        .headers()
-        .get(header::ACCEPT)
-        .and_then(|h| h.to_str().ok())
-        .unwrap_or("");
+pub async fn msgpack_negotiation(
+    req: Request<Body>,
+    next: axum::middleware::Next,
+) -> Response<Body> {
+    let accept = req.headers().get(header::ACCEPT).and_then(|h| h.to_str().ok()).unwrap_or("");
 
     let wants_msgpack = accept.contains("application/vnd.msgpack");
 
@@ -129,10 +137,8 @@ pub async fn msgpack_negotiation(req: Request<Body>, next: Next) -> Response<Bod
                         return Response::from_parts(parts, Body::from(msgpack_bytes));
                     }
                 }
-                // Si la serialización de msgpack falla, reconstruimos la respuesta JSON original
                 return Response::from_parts(parts, Body::from(bytes));
             } else {
-                // Caso extremo donde no se pudieron leer los bytes del cuerpo
                 return Response::from_parts(parts, Body::empty());
             }
         }
@@ -141,7 +147,7 @@ pub async fn msgpack_negotiation(req: Request<Body>, next: Next) -> Response<Bod
     response
 }
 
-async fn shutdown_signal(name: &str) {
+async fn shutdown_signal(name: &str, drain_timeout: Duration) {
     let ctrl_c = async {
         match signal::ctrl_c().await {
             Ok(()) => {}
@@ -172,7 +178,10 @@ async fn shutdown_signal(name: &str) {
     }
 
     tracing::info!(
-        "Signal received, starting graceful shutdown for {}...",
-        name
+        "Signal received, draining for {:?} before shutdown for {}...",
+        drain_timeout,
+        name,
     );
+    tokio::time::sleep(drain_timeout).await;
+    tracing::info!("Shutdown complete for {}", name);
 }

@@ -83,6 +83,95 @@ infra-http-axum (Axum) ──> usecases (Negocio) ──> domain (Reglas puras) 
 
 ---
 
+## ⚙️ Funcionalidades Operacionales (DevOps / Kubernetes)
+
+El template incluye varios mecanismos pensados para entornos de producción orquestados. Ninguno requiere configuración adicional para funcionar en local.
+
+### Health Checks (`/healthz` y `/readyz`)
+
+El servidor expone dos endpoints de sondeo fuera de `/api/v1`, ideales para probes de Kubernetes:
+
+| Endpoint       | Propósito       | Respuesta                                   |
+| -------------- | --------------- | ------------------------------------------- |
+| `GET /healthz` | Liveness probe  | `200` siempre (proceso vivo)                |
+| `GET /readyz`  | Readiness probe | `200` si MongoDB responde ping, `503` si no |
+
+La lógica de readiness se inyecta en `main.rs` como un closure (`HealthChecker`) que verifica la conexión real a la base de datos al momento de la llamada.
+
+### Graceful Shutdown (`DRAIN_TIMEOUT_SECS`)
+
+Cuando el proceso recibe `SIGTERM` (Ctrl+C o Kubernetes terminando el pod), el servidor:
+
+1. Deja de aceptar conexiones nuevas inmediatamente
+2. Espera `DRAIN_TIMEOUT_SECS` segundos para que los requests en vuelo terminen
+3. Se apaga limpiamente
+
+Esto evita cortar requests a la mitad durante un deploy. El valor por defecto es **10 segundos**. Ajustable con la variable de entorno `DRAIN_TIMEOUT_SECS`. Si tu balanceador de carga ya maneja drain, puedes dejarlo en 0.
+
+### Timeout de Request
+
+El template **no** impone un timeout a nivel de aplicación. El timeout por request debe ser controlado a nivel de infraestructura (load balancer, reverse proxy, Ingress controller, service mesh). Esto da flexibilidad: un endpoint de exportación pesada puede necesitar 5 minutos, mientras que un health check necesita 2 segundos.
+
+### Middleware `X-Request-Id`
+
+Toda respuesta HTTP incluye el header `X-Request-Id`. El middleware:
+
+- **Propaga** el ID si el request entrante ya trae el header
+- **Genera** un UUID v7 si no existe
+- **Inyecta** el valor en el tracing span para correlacionar logs
+
+Esto permite trazar un request a través de múltiples servicios sin depender de OpenTelemetry.
+
+---
+
+## 🌍 Variables de Entorno
+
+### Requeridas (el servicio no arranca sin ellas)
+
+| Variable       | Descripción                          | Ejemplo                     |
+| -------------- | ------------------------------------ | --------------------------- |
+| `SERVICE_NAME` | Nombre del servicio en logs y traces | `user-service`              |
+| `MONGO_URL`    | URI completa de conexión a MongoDB   | `mongodb://localhost:27017` |
+| `MONGO_DB`     | Nombre de la base de datos           | `users_db`                  |
+| `REDIS_URL`    | URI completa de conexión a Redis     | `redis://localhost:6379`    |
+
+### Opcionales (tienen valor por defecto)
+
+| Variable             | Default   | Descripción                                      |
+| -------------------- | --------- | ------------------------------------------------ |
+| `PORT`               | `3000`    | Puerto HTTP del servidor                         |
+| `APP_ENV` / `ENV`    | `DEV`     | Entorno: `DEV`, `STAGING`, `PRODUCTION`          |
+| `PROJECT_ID`         | _(vacío)_ | ID del proyecto GCP para Cloud Trace             |
+| `DEBUG_LEVEL`        | `info`    | Nivel de logs (`debug`, `info`, `warn`, `error`) |
+| `CORS_ORIGINS`       | `*`       | Orígenes CORS permitidos (separados por coma)    |
+| `REDIS_PREFIX`       | `service` | Prefijo para keys en Redis                       |
+| `DRAIN_TIMEOUT_SECS` | `10`      | Segundos de espera durante graceful shutdown     |
+
+> 📖 La telemetría usa plugins oficiales de Google Cloud. Referencia: [Rust libraries for Google Cloud](https://docs.cloud.google.com/rust/docs/reference?hl=es-419)
+
+---
+
+## 🎨 Estilo de Código
+
+El proyecto incluye:
+
+- **`rustfmt.toml`**: `max_width=100`, `tab_spaces=4`, `edition=2024`
+- **`clippy.toml`**: permite `unwrap`, `expect` y `dbg!` solo en tests
+
+Para formatear todo el workspace:
+
+```bash
+cargo fmt --all
+```
+
+Para linting:
+
+```bash
+cargo clippy --workspace
+```
+
+---
+
 ## 📦 Gestión de Dependencias Ordenadas (`cargo-sort`)
 
 Para mantener todos los archivos `Cargo.toml` del workspace limpios, estandarizados y ordenados alfabéticamente por bloques, este proyecto utiliza la herramienta **`cargo-sort`**.

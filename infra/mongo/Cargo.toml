@@ -11,5 +11,4 @@ domain = { workspace = true }
 futures = { workspace = true }
 mongodb = { workspace = true }
 serde = { workspace = true }
-tokio = { workspace = true }
 tracing = { workspace = true }

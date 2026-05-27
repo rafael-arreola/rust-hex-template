@@ -1364,19 +1364,10 @@ dependencies = [
 name = "infra-http-axum"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "axum",
- "chrono",
  "domain",
- "dotenvy",
- "infra-mongo",
- "infra-redis",
  "opentelemetry 0.32.0",
- "opentelemetry-gcloud-trace",
- "opentelemetry-semantic-conventions",
- "opentelemetry_sdk 0.32.0",
  "rmp-serde",
- "rustls",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
@@ -1385,9 +1376,8 @@ dependencies = [
  "tower-http",
  "tracing",
  "tracing-opentelemetry 0.33.0",
- "tracing-stackdriver",
- "tracing-subscriber",
  "usecases",
+ "uuid",
  "validator",
 ]
 
@@ -1402,7 +1392,6 @@ dependencies = [
  "futures",
  "mongodb",
  "serde",
- "tokio",
  "tracing",
 ]
 
@@ -2757,6 +2746,7 @@ dependencies = [
  "infra-http-axum",
  "infra-mongo",
  "infra-redis",
+ "mongodb",
  "opentelemetry 0.32.0",
  "opentelemetry-gcloud-trace",
  "opentelemetry_sdk 0.32.0",

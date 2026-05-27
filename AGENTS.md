@@ -115,6 +115,8 @@ infra/redis/src/lib.rs                            → Redis connections & helper
 infra/http-axum/src/routes/{entity}.rs                        → Axum handlers/controllers
 infra/http-axum/src/routes/mod.rs                             → Router registration
 infra/http-axum/src/server/error.rs                           → ApiError definition
+infra/http-axum/src/server/health.rs                          → Health check endpoints (/healthz, /readyz)
+infra/http-axum/src/server/middleware.rs                      → Cross-cutting HTTP middleware (e.g. X-Request-Id)
 infra/http-axum/src/server/response.rs                        → GenericApiResponse
 infra/http-axum/src/server/state.rs                           → AppState (Services container)
 infra/http-axum/src/server/validation.rs                      → Validation utilities
@@ -124,6 +126,9 @@ infra/http-axum/src/lib.rs                                    → HTTP-Axum crat
 service/src/config.rs                                         → Environment configuration (loaded once)
 service/src/telemetry.rs                                      → OpenTelemetry & tracing setup
 service/src/main.rs                                           → Composition Root & DI wiring (Main binary)
+
+rustfmt.toml                                                  → Rustfmt configuration (workspace-wide, mandatory)
+clippy.toml                                                   → Clippy configuration (workspace-wide, mandatory)
 ```
 
 **Module registration rule:** every new file MUST be exported in its parent `mod.rs` (`pub mod {entity};`) or `lib.rs`.
@@ -134,12 +139,12 @@ service/src/main.rs                                           → Composition Ro
 infra/http-axum ──> usecases ──> domain <── infra/mongo, infra/redis
 ```
 
-| Crate / Layer       | May import                                 | Forbidden to import              |
-| ------------------- | ------------------------------------------ | -------------------------------- |
-| `domain`            | Nothing outside itself (zero local crates) | Everything else                  |
-| `usecases`          | Only `domain`                              | `infra-mongo`, `infra-http-axum` |
-| `infra-mongo/redis` | Only `domain`                              | `usecases`, `infra-http-axum`    |
-| `infra-http-axum`   | Everything (acts as Composition Root)      | —                                |
+| Crate / Layer       | May import                                                       | Forbidden to import                           |
+| ------------------- | ---------------------------------------------------------------- | --------------------------------------------- |
+| `domain`            | Nothing outside itself (zero local crates)                       | Everything else                               |
+| `usecases`          | Only `domain`                                                    | `infra-mongo`, `infra-http-axum`              |
+| `infra-mongo/redis` | Only `domain`                                                    | `usecases`, `infra-http-axum`                 |
+| `infra-http-axum`   | `domain`, `usecases`, framework deps, observability types/traits | `infra-mongo`, `infra-redis`, SDK config deps |
 
 ## What may cross crate boundaries
 
@@ -323,3 +328,58 @@ To maintain clean, organized, and standardized `Cargo.toml` files throughout the
 - All dependency blocks (e.g., `[dependencies]`, `[workspace.dependencies]`, etc.) must be sorted alphabetically and grouped/ordered by their nature.
 - Always run the workspace sorting command `cargo sort -w -g` to check and apply changes across all workspace crates before committing or wrapping up changes in dependencies.
 - Ensure that no manual unstructured ordering of dependencies is introduced into any `Cargo.toml` file.
+
+## Cargo.toml Hygiene Rule
+
+Every crate MUST only declare dependencies it actually imports in its source code. Declaring unused dependencies bloats the dependency tree, slows down builds, and misleads contributors about architectural boundaries. The definitive test is `cargo check -p <crate>` — if it compiles without a dependency, that dependency does not belong.
+
+## Provider Fail-Fast Rule
+
+All infrastructure providers (MongoDB, Redis, etc.) instantiated in `service/src/main.rs` MUST follow the same fail-fast pattern:
+
+```rust
+let provider = match Provider::new(&url).await {
+    Ok(p) => p,
+    Err(e) => {
+        tracing::error!("Failed to connect to Provider: {}", e);
+        return; // ← detiene el servicio, no arranca en estado degradado
+    }
+};
+```
+
+Index creation follows the same contract — if indexes cannot be ensured at startup, the service MUST NOT start:
+
+```rust
+if let Err(e) = repository.create_indexes().await {
+    tracing::error!("Failed to create indexes: {}", e);
+    return;
+}
+```
+
+## Model Conversion Consistency Rule
+
+All `{Entity}Model` structs in `infra/mongo/src/{entity}/model.rs` MUST implement `From<Entity> for Model` and `From<Model> for Entity`. Never use `TryFrom` — it introduces an inconsistent pattern across entities. Invalid IDs are handled silently via `.unwrap_or_default()` for `ObjectId`, matching the existing behavior of the template.
+
+## Health Check Rule
+
+Every service MUST expose two endpoints outside the `/api/v1` namespace:
+
+- `GET /healthz` — liveness probe, returns 200 if the process is alive.
+- `GET /readyz` — readiness probe, returns 200 if external dependencies (e.g., MongoDB) respond to ping, 503 otherwise.
+
+Handlers live in `infra/http-axum/src/server/health.rs`. The readiness checker is injected from `main.rs` as a `HealthChecker` closure.
+
+## X-Request-Id Middleware Rule
+
+All HTTP responses MUST include an `X-Request-Id` header. The middleware in `infra/http-axum/src/server/middleware.rs`:
+
+- Propagates the incoming `X-Request-Id` header if present.
+- Generates a UUID v7 if absent.
+- Records the value in the tracing span for log correlation.
+
+## Code Style Files Rule
+
+Every workspace MUST include `rustfmt.toml` and `clippy.toml` at the repository root. These files enforce:
+
+- Consistent formatting across all contributors.
+- Linting rules that allow `unwrap`, `expect`, and `dbg!` exclusively within test code.

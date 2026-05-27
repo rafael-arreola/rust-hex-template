@@ -18,25 +18,15 @@ pub struct OrderModel {
     pub deleted_at: Option<bson::DateTime>,
 }
 
-impl TryFrom<Order> for OrderModel {
-    type Error = String;
+impl From<Order> for OrderModel {
+    fn from(order: Order) -> Self {
+        let user_oid = ObjectId::parse_str(&*order.user_id).unwrap_or_default();
+        let product_oid = ObjectId::parse_str(&*order.product_id).unwrap_or_default();
+        let id = order
+            .id
+            .and_then(|id| ObjectId::parse_str(&*id).ok());
 
-    fn try_from(order: Order) -> Result<Self, Self::Error> {
-        let user_oid = ObjectId::parse_str(&*order.user_id)
-            .map_err(|_| format!("Invalid User ID format: {}", order.user_id))?;
-        let product_oid = ObjectId::parse_str(&*order.product_id)
-            .map_err(|_| format!("Invalid Product ID format: {}", order.product_id))?;
-
-        let id = if let Some(id) = order.id {
-            Some(
-                ObjectId::parse_str(&*id)
-                    .map_err(|_| format!("Invalid Order ID format: {}", id))?,
-            )
-        } else {
-            None
-        };
-
-        Ok(Self {
+        Self {
             id,
             user_id: user_oid,
             product_id: product_oid,
@@ -45,7 +35,7 @@ impl TryFrom<Order> for OrderModel {
             created_at: bson::DateTime::from_chrono(order.created_at),
             updated_at: bson::DateTime::from_chrono(order.updated_at),
             deleted_at: order.deleted_at.map(bson::DateTime::from_chrono),
-        })
+        }
     }
 }
 

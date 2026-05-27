@@ -9,6 +9,7 @@ domain = { workspace = true }
 infra-http-axum = { workspace = true }
 infra-mongo = { workspace = true }
 infra-redis = { workspace = true }
+mongodb = { workspace = true }
 usecases = { workspace = true }
 
 # Async runtime
