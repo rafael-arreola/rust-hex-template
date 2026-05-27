@@ -1,7 +1,17 @@
 ####################################################################################################
+## Base Stage - Configures fast linker and certificates for all stages
+####################################################################################################
+FROM rust:bookworm AS base
+RUN update-ca-certificates
+
+# Install LLD linker to make compiling and linking significantly faster across all stages
+RUN apt-get update && apt-get install -y lld clang && rm -rf /var/lib/apt/lists/*
+ENV RUSTFLAGS="-C link-arg=-fuse-ld=lld"
+
+####################################################################################################
 ## Planner Stage - generates the dependency recipe
 ####################################################################################################
-FROM rust:bookworm AS planner
+FROM base AS planner
 RUN cargo install cargo-chef
 WORKDIR /app
 COPY . .
@@ -10,7 +20,7 @@ RUN cargo chef prepare --recipe-path recipe.json
 ####################################################################################################
 ## Cacher Stage - builds only dependencies (cached between builds)
 ####################################################################################################
-FROM rust:bookworm AS cacher
+FROM base AS cacher
 RUN cargo install cargo-chef
 WORKDIR /app
 COPY --from=planner /app/recipe.json recipe.json
@@ -19,21 +29,7 @@ RUN cargo chef cook --release --recipe-path recipe.json
 ####################################################################################################
 ## Builder Stage - builds only your source code
 ####################################################################################################
-FROM rust:bookworm AS builder
-RUN update-ca-certificates
-
-ENV USER=app
-ENV UID=10001
-
-RUN adduser \
-    --disabled-password \
-    --gecos "" \
-    --home "/nonexistent" \
-    --shell "/sbin/nologin" \
-    --no-create-home \
-    --uid "${UID}" \
-    "${USER}"
-
+FROM base AS builder
 WORKDIR /app
 
 COPY --from=cacher /app/target target
@@ -43,19 +39,16 @@ COPY . .
 
 RUN cargo build --release
 
-RUN strip -s /app/target/release/service && \
-    cp /app/target/release/service /app/service
+RUN strip -s /app/target/release/service
 
 ####################################################################################################
 ## Final image Stage
 ####################################################################################################
 FROM gcr.io/distroless/cc-debian12
-USER app:app
 WORKDIR /app
 
-COPY --from=builder /etc/passwd /etc/passwd
-COPY --from=builder /etc/group /etc/group
+COPY --from=builder --chown=10001:10001 --chmod=755 /app/target/release/service ./service
 
-COPY --from=builder /app/service ./service
+USER 10001:10001
 
 CMD ["/app/service"]

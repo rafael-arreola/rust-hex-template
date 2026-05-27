@@ -13,16 +13,7 @@ steps:
           -t us-docker.pkg.dev/$PROJECT_ID/artifacts/$_SERVICE_NAME:$COMMIT_SHA \
           -f build/Dockerfile .
 
-  # 2. Register Service Image (Push)
-  - id: "register-service"
-    name: "gcr.io/cloud-builders/docker"
-    args:
-      [
-        "push",
-        "us-docker.pkg.dev/$PROJECT_ID/artifacts/$_SERVICE_NAME:$COMMIT_SHA",
-      ]
-
-  # 3. Deploy to Cloud Run
+  # 2. Deploy to Cloud Run
   - id: "deploy-service"
     name: "gcr.io/cloud-builders/gcloud"
     args:
@@ -38,6 +29,9 @@ steps:
       - "--set-env-vars=SERVICE_NAME=$_SERVICE_NAME"
       - "--set-env-vars=PROJECT_ID=$PROJECT_ID"
       # Configure sus secretos y envs adicionales manualmente o vía sustituciones
+      - "--ingress=internal-and-cloud-load-balancing"
+      - "--network=projects/shared-resources-451520/global/networks/$_VPC_CONNECTOR"
+      - "--subnet=projects/shared-resources-451520/regions/us-central1/subnetworks/$_VPC_CONNECTOR_SUBNET"
 
 substitutions:
   _APP_ENV: "PRD"
