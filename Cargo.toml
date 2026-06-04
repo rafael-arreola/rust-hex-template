@@ -2,21 +2,23 @@
 [workspace]
 resolver = "3"
 members = [
-    "core/domain",
-    "core/usecases",
-    "infra/http-axum",
-    "infra/mongo",
-    "infra/redis",
-    "service",
+    "application",
+    "cmd/service",
+    "domain",
+    "infrastructure/driven/mongo",
+    "infrastructure/driven/redis",
+    "infrastructure/driving/http-axum",
+    "shared",
 ]
 
 [workspace.dependencies]
 # workspace dependencies
-domain = { path = "core/domain" }
-infra-http-axum = { path = "infra/http-axum" }
-infra-mongo = { path = "infra/mongo" }
-infra-redis = { path = "infra/redis" }
-usecases = { path = "core/usecases" }
+application = { path = "application" }
+domain = { path = "domain" }
+infra-http-axum = { path = "infrastructure/driving/http-axum" }
+infra-mongo = { path = "infrastructure/driven/mongo" }
+infra-redis = { path = "infrastructure/driven/redis" }
+shared = { path = "shared" }
 
 # external dependencies
 anyhow = "1"
