@@ -1,26 +1,9 @@
+[package]
+name = "service"
+version = "0.1.0"
+edition = "2024"
 
-[workspace]
-resolver = "3"
-members = [
-    "application",
-    "cmd/service",
-    "domain",
-    "infrastructure/driven/mongo",
-    "infrastructure/driven/redis",
-    "infrastructure/driving/http-axum",
-    "shared",
-]
-
-[workspace.dependencies]
-# workspace dependencies
-application = { path = "application" }
-domain = { path = "domain" }
-infra-http-axum = { path = "infrastructure/driving/http-axum" }
-infra-mongo = { path = "infrastructure/driven/mongo" }
-infra-redis = { path = "infrastructure/driven/redis" }
-shared = { path = "shared" }
-
-# external dependencies
+[dependencies]
 anyhow = "1"
 async-trait = "0.1"
 axum = "0.8"
@@ -43,6 +26,7 @@ opentelemetry-gcloud-trace = "0.24"
 opentelemetry-semantic-conventions = "0.32"
 opentelemetry_sdk = "0.32"
 redis = { version = "1", features = ["aio", "tokio-comp"] }
+rmp-serde = "1.3"
 rustls = "0.23"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
