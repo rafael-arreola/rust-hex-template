@@ -3,45 +3,47 @@
 ```text
 .
 ├── build/
-├── cmd/
-│   └── service/
-│       └── main.rs                 ← entry point, DI manual
-├── domain/                         ← corazón del negocio, cero dependencias externas
-│   └── src/
-│       ├── entities/               ← structs de datos puros + typed IDs
-│       │   └── {entidad}.rs
-│       ├── ports/                  ← puertos de SALIDA: traits que el dominio exige
-│       │   └── {entidad}.rs        ← {Entity}RepositoryPort
-│       ├── services/               ← reglas de negocio puras, sin I/O
-│       │   └── {servicio}.rs
-│       ├── error.rs                ← DomainError enum + DomainResult<T>
-│       ├── pagination.rs           ← Pagination struct
-│       ├── values.rs               ← DomainId<T>
-│       └── macros/                 ← as_json! macro
-├── application/                    ← casos de uso: entrada a la ejecución del negocio
-│   └── src/
-│       ├── {entidad}.rs            ← {Entity}Service (orquesta ports + domain services)
-│       └── shared/                 ← sub-flujos reusables CON I/O
-├── infrastructure/
-│   ├── driven/                     ← adaptadores de SALIDA: implementan domain::ports
-│   │   ├── mongo/
-│   │   │   └── src/{entidad}/
-│   │   │       ├── model.rs        ← {Entity}Model (BSON)
-│   │   │       └── repository.rs   ← {Entity}Repository — impl {Entity}RepositoryPort
-│   │   └── redis/
-│   │       └── src/lib.rs
-│   └── driving/                    ← adaptadores de ENTRADA: importan application/ directo
-│       └── http-axum/
-│           └── src/
-│               ├── routes/{entidad}.rs
-│               └── server/         ← error, health, middleware, response, state, validation
-├── shared/                         ← herramientas técnicas sin lógica de negocio
-│   └── src/
-│       ├── config.rs               ← carga de .env + struct Env
-│       └── tracer.rs               ← OpenTelemetry + tracing
-├── Cargo.toml                      ← workspace root
+├── Cargo.toml                      ← Manifiesto del proyecto (unificado)
 ├── rustfmt.toml
-└── clippy.toml
+├── clippy.toml
+└── src/                            ← Único directorio src del proyecto
+    ├── main.rs                     ← entry point, DI manual, Composition Root
+    ├── domain.rs                   ← Enrutador de dominio
+    ├── domain/                     ← Corazón del negocio, cero dependencias externas
+    │   ├── entities/               ← structs de datos puros + typed IDs
+    │   │   └── {entidad}.rs
+    │   ├── port/                   ← puertos de SALIDA: traits que el dominio exige
+    │   │   └── {entidad}.rs        ← {Entity}RepositoryPort
+    │   ├── services/               ← reglas de negocio puras, sin I/O
+    │   │   └── {servicio}.rs
+    │   ├── error.rs                ← DomainError enum + DomainResult<T>
+    │   ├── pagination.rs           ← Pagination struct
+    │   ├── values.rs               ← DomainId<T>
+    │   └── macros/                 ← as_json! macro
+    ├── application.rs              ← Enrutador de aplicación
+    ├── application/                ← Casos de uso: entrada a la ejecución del negocio
+    │   ├── {entidad}.rs            ← {Entity}Service (orquesta ports + domain services)
+    │   └── shared/                 ← sub-flujos reusables CON I/O
+    ├── shared.rs                   ← Enrutador de capacidades técnicas
+    ├── shared/                     ← Herramientas técnicas sin lógica de negocio
+    │   ├── config.rs               ← carga de .env + struct Env
+    │   └── tracer.rs               ← OpenTelemetry + tracing
+    ├── infrastructure.rs           ← Enrutador general de infraestructura
+    └── infrastructure/
+        ├── driven.rs               ← Enrutador de driven adapters
+        ├── driven/                 ← Adaptadores de SALIDA: implementan domain::ports
+        │   ├── mongo.rs            ← Enrutador de Mongo
+        │   ├── mongo/
+        │   │   └── {entidad}/
+        │   │       ├── model.rs        ← {Entity}Model (BSON)
+        │   │       └── repository.rs   ← {Entity}Repository — impl {Entity}RepositoryPort
+        │   └── redis.rs            ← Adaptador de conexiones y helpers Redis
+        └── driving.rs              ← Enrutador de driving adapters
+            └── driving/            ← Adaptadores de ENTRADA: importan application/ directo
+                ├── http_axum.rs    ← Enrutador del servidor HTTP
+                └── http_axum/
+                    ├── routes/{entidad}.rs
+                    └── server/     ← error, health, middleware, response, state, validation
 ```
 
 ---
@@ -49,12 +51,12 @@
 ## Flujo de una petición
 
 ```text
-driving (HTTP) → application ({Entity}Service) → domain::ports (trait)
+driving (HTTP) → application ({Entity}Service) → domain::port (trait)
                                                       ↓
                                               driven ({Entity}Repository en Mongo)
 ```
 
-El **driving** (`http-axum/`) importa directamente `application::OrderService` (tipo concreto, sin trait).
+El **driving** (`http_axum/`) importa directamente `application::OrderService` (tipo concreto, sin trait).
 El **application** (`OrderService`) depende de `domain::port::OrderRepositoryPort` (trait definido por el dominio).
 El **driven** (`mongo/`) implementa `domain::port::OrderRepositoryPort`.
 
@@ -62,34 +64,34 @@ El dominio **nunca** sabe quién lo llama ni quién implementa sus puertos.
 
 ---
 
-## Qué va en cada crate
+## Qué va en cada capa / módulo
 
-### `domain/` — El negocio puro
+### `src/domain/` — El negocio puro
 
 | Módulo      | Va aquí                                                                                                                                               | NO va aquí                                                            |
 | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
 | `entities/` | Structs con `Serialize`/`Deserialize`. Datos puros + typed IDs (`DomainId<T>`).                                                                       | Métodos con I/O, lógica que llama a otros crates                      |
-| `ports/`    | **Solo traits de salida**: `create`, `find_by_id`, `update`, `delete`. Define QUÉ necesita el dominio, no CÓMO. `#[async_trait]` + `Send + Sync`.     | Tipos concretos, imports de `mongodb`, `axum`                         |
+| `port/`     | **Solo traits de salida**: `create`, `find_by_id`, `update`, `delete`. Define QUÉ necesita el dominio, no CÓMO. `#[async_trait]` + `Send + Sync`.     | Tipos concretos, imports de `mongodb`, `axum`                         |
 | `services/` | Lógica de negocio pura: `apply_discount`, `calculate_tax`. Opera solo sobre entidades. Sin constructor con dependencias. Sin I/O.                     | Constructores con parámetros de infraestructura. Llamadas a DB, HTTP. |
 | `error.rs`  | `DomainError` enum con variantes `NotFound`, `AlreadyExists`, `Invalid`, `Internal`. Cada variante expone `.code()` estable. `DomainResult<T>` alias. | Errores de infraestructura (esos se mapean aquí)                      |
 | `values.rs` | `DomainId<T>` — ID tipado con marcador fantasma.                                                                                                      | Lógica de negocio                                                     |
 | `macros/`   | `as_json!` macro para serialización inline en tracing events.                                                                                         | —                                                                     |
 
 ```rust
-// domain/entities/order.rs
+// src/domain/entities/order.rs
 pub struct Order {
     pub id: Option<OrderId>,
     pub total_price: f64,
 }
 
-// domain/ports/order.rs — solo traits de SALIDA
+// src/domain/port/order.rs — solo traits de SALIDA
 #[async_trait]
 pub trait OrderRepositoryPort: Send + Sync {
     async fn create(&self, order: &Order) -> DomainResult<OrderId>;
     async fn find_by_id(&self, id: &OrderId) -> DomainResult<Option<Order>>;
 }
 
-// domain/services/pricing.rs — sin constructor, sin I/O
+// src/domain/services/pricing.rs — sin constructor, sin I/O
 pub struct PricingService;
 
 impl PricingService {
@@ -101,7 +103,7 @@ impl PricingService {
 
 ---
 
-### `application/` — Casos de uso
+### `src/application/` — Casos de uso
 
 Es la **única puerta de entrada** a la lógica de negocio. Orquesta entidades, domain services, y ports.
 
@@ -111,7 +113,7 @@ Es la **única puerta de entrada** a la lógica de negocio. Orquesta entidades, 
 | `shared/mod.rs` | Sub-flujos con I/O reusables: `FraudChecker`, `InventoryReserver`. Reciben repos/clients por constructor.         | Entry points (eso va en `{entidad}.rs`)               |
 
 ```rust
-// application/order.rs
+// src/application/order.rs
 pub struct OrderService {
     order_repo: Arc<dyn OrderRepositoryPort>,   // ← trait definido en domain::port
     pricing: PricingService,                     // ← domain service, sin I/O
@@ -137,7 +139,7 @@ impl OrderService {
 
 ---
 
-### `infrastructure/driven/` — Adaptadores de salida
+### `src/infrastructure/driven/` — Adaptadores de salida
 
 Implementan los traits definidos en `domain::ports`. Conexión con el mundo real.
 
@@ -147,7 +149,7 @@ Implementan los traits definidos en `domain::ports`. Conexión con el mundo real
 | `redis/`           | Conexiones y helpers Redis  | Tipo concreto (sin trait)              |
 
 ```rust
-// infrastructure/driven/mongo/src/order/repository.rs
+// src/infrastructure/driven/mongo/order/repository.rs
 pub struct OrderRepository { collection: Collection<OrderModel> }
 
 #[async_trait]
@@ -163,12 +165,12 @@ impl OrderRepositoryPort for OrderRepository {
 
 ---
 
-### `infrastructure/driving/` — Adaptadores de entrada
+### `src/infrastructure/driving/` — Adaptadores de entrada
 
 Importan **directamente** los services de `application/`. Sin trait de por medio.
 
 ```rust
-// infrastructure/driving/http-axum/src/routes/order.rs
+// src/infrastructure/driving/http_axum/routes/order.rs
 pub async fn create_order(
     State(service): State<Arc<OrderService>>,  // ← tipo concreto, sin trait
     ValidatedJson(input): ValidatedJson<CreateOrderInput>,
@@ -180,7 +182,7 @@ pub async fn create_order(
 
 ---
 
-### `shared/` — Capacidades técnicas
+### `src/shared/` — Capacidades técnicas
 
 | Archivo     | Qué contiene                                | Dependencias         |
 | ----------- | ------------------------------------------- | -------------------- |
@@ -191,7 +193,7 @@ pub async fn create_order(
 
 ---
 
-### `cmd/service/main.rs` — Wiring (DI manual)
+### `src/main.rs` — Wiring (DI manual)
 
 ```rust
 // 1. Conexiones
@@ -217,17 +219,17 @@ ServerLauncher::new(state).with_http(env.port).run().await;
 
 ## Reglas de decisión
 
-| Si tu código…                                            | Va en…                                 | Porque…                       |
-| -------------------------------------------------------- | -------------------------------------- | ----------------------------- |
-| Es una estructura de datos con `Serialize`/`Deserialize` | `domain/src/entities/`                 | Es el modelo de dominio       |
-| Es un trait que el dominio necesita (repo)               | `domain/src/ports/`                    | El dominio define el contrato |
-| Opera solo sobre entidades, sin I/O                      | `domain/src/services/`                 | Lógica de negocio pura        |
-| Orquesta un flujo completo (entry point)                 | `application/src/{entidad}.rs`         | Caso de uso                   |
-| Orquesta I/O y se reusa en varios casos de uso           | `application/src/shared/`              | Sub-flujo reusable            |
-| Habla con MongoDB, Redis                                 | `infrastructure/driven/{mongo,redis}/` | Adaptador de persistencia     |
-| Habla con un servicio externo HTTP/gRPC                  | `infrastructure/driven/{servicio}/`    | Cliente externo               |
-| Recibe requests HTTP                                     | `infrastructure/driving/http-axum/`    | Adaptador de entrada          |
-| Es log, trace, config                                    | `shared/src/`                          | Herramienta técnica           |
+| Si tu código…                                            | Va en…                                     | Porque…                       |
+| -------------------------------------------------------- | ------------------------------------------ | ----------------------------- |
+| Es una estructura de datos con `Serialize`/`Deserialize` | `src/domain/entities/`                     | Es el modelo de dominio       |
+| Es un trait que el dominio necesita (repo)               | `src/domain/port/`                         | El dominio define el contrato |
+| Opera solo sobre entidades, sin I/O                      | `src/domain/services/`                     | Lógica de negocio pura        |
+| Orquesta un flujo completo (entry point)                 | `src/application/{entidad}.rs`             | Caso de uso                   |
+| Orquesta I/O y se reusa en varios casos de uso           | `src/application/shared/`                  | Sub-flujo reusable            |
+| Habla con MongoDB, Redis                                 | `src/infrastructure/driven/{mongo,redis}/` | Adaptador de persistencia     |
+| Habla con un servicio externo HTTP/gRPC                  | `src/infrastructure/driven/{servicio}/`    | Cliente externo               |
+| Recibe requests HTTP                                     | `src/infrastructure/driving/http_axum/`    | Adaptador de entrada          |
+| Es log, trace, config                                    | `src/shared/`                              | Herramienta técnica           |
 
 ---
 
@@ -258,12 +260,12 @@ ServerLauncher::new(state).with_http(env.port).run().await;
 ## 🚀 Comandos rápidos
 
 ```bash
-cargo check                          # Validar compilación de todo el workspace
+cargo check                          # Validar compilación del monolito
 cargo test                           # Correr todas las pruebas
-cargo run -p service                 # Arrancar el servidor en modo desarrollo
-cargo fmt --all                      # Formatear todo el workspace
-cargo sort -w -g                     # Ordenar dependencias alfabéticamente
-cargo clippy --workspace             # Linting
+cargo run                            # Arrancar el servidor en modo desarrollo
+cargo fmt                            # Formatear todo el proyecto
+cargo sort -g                        # Ordenar dependencias alfabéticamente
+cargo clippy                         # Linting
 ```
 
 ---

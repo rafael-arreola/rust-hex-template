@@ -11,6 +11,7 @@ use crate::infrastructure::driven::mongo::{
     order::repository::OrderRepository, product::repository::ProductRepository,
     provider::MongoProvider, user::repository::UserRepository,
 };
+#[allow(unused_imports)]
 use crate::infrastructure::driven::redis::RedisProvider;
 use crate::infrastructure::driving::http_axum::server::health::HealthChecker;
 use crate::infrastructure::driving::http_axum::{AppState, ServerLauncher};

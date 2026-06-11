@@ -1,15 +1,15 @@
 # Target Outcome
 
-Produce a Rust workspace following a hexagonal/clean architecture with Axum HTTP, MongoDB, and Redis. Every entity follows identical structural patterns so the codebase is predictable across all contributors. The agent may flag missing context, anticipate edge cases, and propose shortcuts—but respects the existing architecture and avoids unwarranted rewrites.
+Produce a Rust monolithic codebase following a hexagonal/clean architecture with Axum HTTP, MongoDB, and Redis. Every entity follows identical structural patterns so the codebase is predictable across all contributors. The agent may flag missing context, anticipate edge cases, and propose shortcuts—but respects the existing architecture and avoids unwarranted rewrites.
 
 # Success Criteria
 
 - All entities follow the same directory structure, naming conventions, and template patterns below.
-- Layer dependencies are strictly enforced: `driving/http-axum → application → domain ← driven/mongo/redis`.
+- Layer dependencies are strictly enforced: `driving/http_axum → application → domain ← driven/mongo/redis`.
 - All external errors are mapped to `DomainError` variants with stable, machine-readable codes.
 - Health check endpoints (`/healthz`, `/readyz`) and `X-Request-Id` middleware are present in every service.
 - Cargo dependencies are sorted alphabetically; unused dependencies are removed.
-- `rustfmt.toml` and `clippy.toml` enforce consistent formatting and linting across the workspace.
+- `rustfmt.toml` and `clippy.toml` enforce consistent formatting and linting across the codebase.
 
 # Invariants
 
@@ -28,50 +28,52 @@ These rules are non-negotiable. They exist to make the codebase predictable acro
 | DTOs                   | `*Input` / `*Output` suffix           | `CreateUserInput`, `UserOutput`     | `UserDto`, `UserRequest`    |
 | Variables & fields     | full words, no abbreviations          | `user_email`, `page_number`         | `usr`, `idx`, `tmp`         |
 
-## Cargo Workspace Directory Structure (mandatory)
+## Cargo Monolithic Directory Structure (mandatory)
 
 ```
-domain/src/entities.rs                          → Entity module router
-domain/src/entities/{entity}.rs                 → Entity struct + typed ID + marker
-domain/src/port.rs                              → Port module router
-domain/src/port/{entity}.rs                     → trait {Entity}RepositoryPort
-domain/src/services.rs                          → Domain services module router
-domain/src/services/{service}.rs                → Pure business logic (no I/O, no deps)
-domain/src/error.rs                             → DomainError enum + DomainResult<T>
-domain/src/values.rs                            → DomainId<T>
-domain/src/pagination.rs                        → Pagination struct
-domain/src/macros.rs                            → Macros module router
-domain/src/macros/json.rs                       → JSON serialization macros (as_json!)
-domain/src/lib.rs                               → Domain crate root (pub mod)
+Cargo.toml                                       → Root package configuration
+src/main.rs                                      → Composition Root & DI wiring (Main binary)
+src/domain.rs                                    → Domain module router (former domain/src/lib.rs)
+src/domain/entities.rs                           → Entity module router
+src/domain/entities/{entity}.rs                  → Entity struct + typed ID + marker
+src/domain/port.rs                               → Port module router
+src/domain/port/{entity}.rs                      → trait {Entity}RepositoryPort
+src/domain/services/mod.rs                       → Domain services module router
+src/domain/services/{service}.rs                 → Pure business logic (no I/O, no deps)
+src/domain/error.rs                              → DomainError enum + DomainResult<T>
+src/domain/values.rs                             → DomainId<T>
+src/domain/pagination.rs                         → Pagination struct
+src/domain/macros.rs                             → Macros module router
+src/domain/macros/json.rs                        → JSON serialization macros (as_json!)
 
-application/src/{entity}.rs                     → {Entity}Service (use case orchestration)
-application/src/shared/mod.rs                   → Reusable sub-flows WITH I/O
-application/src/lib.rs                          → Application crate root (pub mod)
+src/application.rs                               → Application module router (former application/src/lib.rs)
+src/application/{entity}.rs                      → {Entity}Service (use case orchestration)
+src/application/shared/mod.rs                    → Reusable sub-flows WITH I/O
 
-infrastructure/driven/mongo/src/{entity}.rs     → {Entity} module router
-infrastructure/driven/mongo/src/{entity}/model.rs   → {Entity}Model (BSON/serde)
-infrastructure/driven/mongo/src/{entity}/repository.rs → {Entity}Repository
-infrastructure/driven/mongo/src/provider.rs     → MongoDB connection provider
-infrastructure/driven/mongo/src/lib.rs          → Mongo crate root (pub mod)
+src/shared.rs                                    → Shared capabilities module router (former shared/src/lib.rs)
+src/shared/config.rs                             → Environment configuration (loaded once)
+src/shared/tracer.rs                             → OpenTelemetry & tracing setup
 
-infrastructure/driven/redis/src/lib.rs          → Redis connections & helpers
+src/infrastructure.rs                            → General infrastructure module router
+src/infrastructure/driven.rs                     → Driven adapters module router
+src/infrastructure/driven/mongo.rs               → MongoDB adaptor module router (former mongo/src/lib.rs)
+src/infrastructure/driven/mongo/provider.rs      → MongoDB connection provider
+src/infrastructure/driven/mongo/{entity}.rs      → {Entity} module router
+src/infrastructure/driven/mongo/{entity}/model.rs   → {Entity}Model (BSON/serde)
+src/infrastructure/driven/mongo/{entity}/repository.rs → {Entity}Repository
+src/infrastructure/driven/redis.rs               → Redis adaptor (former redis/src/lib.rs)
 
-infrastructure/driving/http-axum/src/routes.rs              → Router registration
-infrastructure/driving/http-axum/src/routes/{entity}.rs     → Axum handlers
-infrastructure/driving/http-axum/src/server.rs              → Server module router
-infrastructure/driving/http-axum/src/server/error.rs        → ApiError definition
-infrastructure/driving/http-axum/src/server/health.rs       → Health check endpoints (/healthz, /readyz)
-infrastructure/driving/http-axum/src/server/middleware.rs   → Cross-cutting HTTP middleware (e.g. X-Request-Id)
-infrastructure/driving/http-axum/src/server/response.rs     → GenericApiResponse
-infrastructure/driving/http-axum/src/server/state.rs        → AppState (Services container)
-infrastructure/driving/http-axum/src/server/validation.rs   → Validation utilities
-infrastructure/driving/http-axum/src/lib.rs                 → HTTP-Axum crate root (pub mod)
-
-shared/src/config.rs                             → Environment configuration (loaded once)
-shared/src/tracer.rs                             → OpenTelemetry & tracing setup
-shared/src/lib.rs                                → Shared crate root (pub mod)
-
-cmd/service/src/main.rs                          → Composition Root & DI wiring (Main binary)
+src/infrastructure/driving.rs                    → Driving adapters module router
+src/infrastructure/driving/http_axum.rs          → Axum HTTP adaptor module router (former http-axum/src/lib.rs)
+src/infrastructure/driving/http_axum/routes.rs              → Router registration
+src/infrastructure/driving/http_axum/routes/{entity}.rs     → Axum handlers
+src/infrastructure/driving/http_axum/server.rs              → Server module router
+src/infrastructure/driving/http_axum/server/error.rs        → ApiError definition
+src/infrastructure/driving/http_axum/server/health.rs       → Health check endpoints (/healthz, /readyz)
+src/infrastructure/driving/http_axum/server/middleware.rs   → Cross-cutting HTTP middleware (e.g. X-Request-Id)
+src/infrastructure/driving/http_axum/server/response.rs     → GenericApiResponse
+src/infrastructure/driving/http_axum/server/state.rs        → AppState (Services container)
+src/infrastructure/driving/http_axum/server/validation.rs   → Validation utilities
 
 rustfmt.toml                                     → Rustfmt configuration (workspace-wide, mandatory)
 clippy.toml                                      → Clippy configuration (workspace-wide, mandatory)
@@ -79,29 +81,29 @@ clippy.toml                                      → Clippy configuration (works
 
 Module routers use the modern Rust convention: when a directory `foo/` contains submodules, the parent module is `foo.rs` at the same level as the directory — never `foo/mod.rs`. Every new file is exported with `pub mod` in its parent router or `lib.rs`.
 
-## Layer Dependencies (Enforced by Cargo Workspace)
+## Layer Dependencies (Enforced by Module Boundaries)
 
 ```
-driving/http-axum ──> application ──> domain <── driven/mongo, driven/redis
+driving/http_axum ──> application ──> domain <── driven/mongo, driven/redis
 ```
 
-| Crate / Layer       | May import                                                   | Forbidden to import                             |
+| Module / Layer      | May import                                                   | Forbidden to import                             |
 | ------------------- | ------------------------------------------------------------ | ----------------------------------------------- |
-| `domain`            | Nothing outside itself (zero local crates)                   | Everything else                                 |
-| `application`       | Only `domain`, `shared`                                      | `infra-mongo`, `infra-redis`, `infra-http-axum` |
-| `infra-mongo/redis` | Only `domain`, `shared`                                      | `application`, `infra-http-axum`                |
-| `infra-http-axum`   | `domain`, `application`, framework deps, observability types | `infra-mongo`, `infra-redis`, SDK config deps   |
-| `shared`            | Only external crates (zero project crates)                   | `domain`, `application`, `infra-*`              |
+| `domain`            | Nothing outside itself (zero local modules)                  | Everything else                                 |
+| `application`       | Only `domain`, `shared`                                      | `infra_mongo`, `infra_redis`, `infra_http_axum` |
+| `infra_mongo/redis` | Only `domain`, `shared`                                      | `application`, `infra_http_axum`                |
+| `infra_http_axum`   | `domain`, `application`, framework deps, observability types | `infra_mongo`, `infra_redis`, config deps       |
+| `shared`            | Only external crates                                         | `domain`, `application`, `infra_*`              |
 
-## What may cross crate boundaries
+## What may cross module boundaries
 
 ✅ Primitives (`String`, `i32`, `bool`, `f64`, etc.), `DateTime<Utc>`, domain entities, domain enums, domain typed IDs.
 
-❌ DTOs (`*Input`, `*Output`) outside `infra-http-axum` &nbsp;|&nbsp; ❌ Models (`*Model`) outside `infra-mongo` &nbsp;|&nbsp; ❌ DB driver types (`bson::ObjectId`) outside `infra-mongo`.
+❌ DTOs (`*Input`, `*Output`) outside `infra_http_axum` &nbsp;|&nbsp; ❌ Models (`*Model`) outside `infra_mongo` &nbsp;|&nbsp; ❌ DB driver types (`bson::ObjectId`) outside `infra_mongo`.
 
 ## Three essential templates
 
-### Port (`domain/src/port/{entity}.rs`)
+### Port (`src/domain/port/{entity}.rs`)
 
 ```rust
 use crate::entities::user::{User, UserId};
@@ -123,12 +125,12 @@ pub trait UserRepositoryPort: Send + Sync {
 - Methods receive and return only domain types and primitives.
 - Every port trait uses `#[async_trait]` and is bounded by `Send + Sync`.
 
-### Service (`application/src/{entity}.rs`)
+### Service (`src/application/{entity}.rs`)
 
 ```rust
-use domain::port::user::UserRepositoryPort;
-use domain::entities::user::User;
-use domain::error::DomainResult;
+use crate::domain::port::user::UserRepositoryPort;
+use crate::domain::entities::user::User;
+use crate::domain::error::DomainResult;
 use std::sync::Arc;
 
 pub struct UserService {
@@ -151,7 +153,7 @@ impl UserService {
 - Every public method instrumented with `#[tracing::instrument(skip_all)]`.
 - Parameters are primitives, typed IDs, or domain values. Never DTOs.
 
-### Domain Service (`domain/src/services/{service}.rs`)
+### Domain Service (`src/domain/services/{service}.rs`)
 
 ```rust
 use crate::entities::order::Order;
@@ -172,14 +174,14 @@ impl PricingService {
 - Operates exclusively on domain entities and primitives.
 - Called from application services — never from infrastructure.
 
-### Repository (`infrastructure/driven/mongo/src/{entity}/repository.rs`)
+### Repository (`src/infrastructure/driven/mongo/{entity}/repository.rs`)
 
 ```rust
-use crate::user::model::UserModel;
+use crate::infrastructure::driven::mongo::user::model::UserModel;
 use async_trait::async_trait;
-use domain::entities::user::{User, UserId};
-use domain::error::DomainResult;
-use domain::port::user::UserRepositoryPort;
+use crate::domain::entities::user::{User, UserId};
+use crate::domain::error::DomainResult;
+use crate::domain::port::user::UserRepositoryPort;
 
 #[derive(Clone)]
 pub struct UserRepository { /* collection / pool */ }
@@ -246,17 +248,17 @@ pub type DomainResult<T> = std::result::Result<T, DomainError>;
 ## Response format
 
 1. One-line architectural decision.
-2. Code in dependency order: `domain` → `application` → `infra-mongo`/`infra-redis` → `infra-http-axum` → `main.rs`.
+2. Code in dependency order: `domain` → `application` → `infra_mongo`/`infra_redis` → `infra_http_axum` → `main.rs`.
 3. Trade-offs only if complexity demands it.
 
 ## Logging & Structured Telemetry
 
-To log complete domain objects, entities, or DTOs in telemetry or tracing events, use the `as_json!` macro exported by the `domain` crate instead of `?` (Debug) format or manual serialization.
+To log complete domain objects, entities, or DTOs in telemetry or tracing events, use the `as_json!` macro exported by the `domain` module instead of `?` (Debug) format or manual serialization.
 
 Inject the field using the `%` prefix to indicate a formatted string.
 
 ```rust
-use domain::as_json;
+use crate::domain::as_json;
 
 tracing::info!(user = %as_json!(&user), "User created successfully");
 ```
@@ -294,18 +296,18 @@ self.collection
     .map_err(|e| DomainError::database(e.to_string()))?
 ```
 
-## Dependency Sorting (`cargo-sort`)
+## Dependency Sorting
 
-- All dependency blocks (`[dependencies]`, `[workspace.dependencies]`, etc.) are sorted alphabetically and grouped by nature.
-- Run `cargo sort -w -g` to check and apply changes across all workspace crates before committing dependency changes.
+- All dependency blocks (`[dependencies]`, etc.) are sorted alphabetically and grouped by nature.
+- Run `cargo sort -g` to check and apply changes across the crate before committing dependency changes.
 
 ## Cargo.toml Hygiene
 
-Every crate declares only dependencies it actually imports in its source code. The definitive test is `cargo check -p <crate>` — if it compiles without a dependency, that dependency does not belong.
+The root crate declares only dependencies it actually imports in its source code. The definitive test is `cargo check` — if it compiles without a dependency, that dependency does not belong.
 
 ## Provider Fail-Fast
 
-All infrastructure providers (MongoDB, Redis, etc.) instantiated in `cmd/service/src/main.rs` follow the same fail-fast pattern:
+All infrastructure providers (MongoDB, Redis, etc.) instantiated in `src/main.rs` follow the same fail-fast pattern:
 
 ```rust
 let provider = match Provider::new(&url).await {
@@ -328,7 +330,7 @@ if let Err(e) = repository.create_indexes().await {
 
 ## Model Conversion Consistency
 
-All `{Entity}Model` structs in `infrastructure/driven/mongo/src/{entity}/model.rs` implement `From<Entity> for Model` and `From<Model> for Entity`. Do not use `TryFrom` — it introduces an inconsistent pattern across entities. Invalid IDs are handled silently via `.unwrap_or_default()` for `ObjectId`.
+All `{Entity}Model` structs in `src/infrastructure/driven/mongo/{entity}/model.rs` implement `From<Entity> for Model` and `From<Model> for Entity`. Do not use `TryFrom` — it introduces an inconsistent pattern across entities. Invalid IDs are handled silently via `.unwrap_or_default()` for `ObjectId`.
 
 ## Health Check
 
@@ -337,11 +339,11 @@ Every service exposes two endpoints outside the `/api/v1` namespace:
 - `GET /healthz` — liveness probe, returns 200 if the process is alive.
 - `GET /readyz` — readiness probe, returns 200 if external dependencies (e.g., MongoDB) respond to ping, 503 otherwise.
 
-Handlers live in `infrastructure/driving/http-axum/src/server/health.rs`. The readiness checker is injected from `main.rs` as a `HealthChecker` closure.
+Handlers live in `src/infrastructure/driving/http_axum/server/health.rs`. The readiness checker is injected from `main.rs` as a `HealthChecker` closure.
 
 ## X-Request-Id Middleware
 
-All HTTP responses include an `X-Request-Id` header. The middleware in `infrastructure/driving/http-axum/src/server/middleware.rs`:
+All HTTP responses include an `X-Request-Id` header. The middleware in `src/infrastructure/driving/http_axum/server/middleware.rs`:
 
 - Propagates the incoming `X-Request-Id` header if present.
 - Generates a UUID v7 if absent.
@@ -349,7 +351,7 @@ All HTTP responses include an `X-Request-Id` header. The middleware in `infrastr
 
 ## Code Style Files
 
-Every workspace includes `rustfmt.toml` and `clippy.toml` at the repository root. These enforce:
+The project includes `rustfmt.toml` and `clippy.toml` at the repository root. These enforce:
 
 - Consistent formatting across all contributors.
 - Linting rules that allow `unwrap`, `expect`, and `dbg!` exclusively within test code.
@@ -359,8 +361,8 @@ Every workspace includes `rustfmt.toml` and `clippy.toml` at the repository root
 - **Language**: Rust (stable, LTS preference)
 - **Framework**: Axum (HTTP), Tokio (async runtime)
 - **Databases**: MongoDB (primary), Redis (caching/helpers)
-- **Workspace**: Cargo workspace with crates: `domain`, `application`, `infra-mongo`, `infra-redis`, `infra-http-axum`, `shared`, `service`
+- **Structure**: Monolithic Cargo project with modules: `domain`, `application`, `infra_mongo`, `infra_redis`, `infra_http_axum`, `shared` and `main.rs`
 - **Observability**: OpenTelemetry + `tracing` with structured JSON logging via `as_json!` macro
 - **Validation**: `validator` crate for DTO syntactic validation
 - **Serialization**: `serde`, `bson`
-- **Code quality**: `rustfmt`, `clippy`, `cargo-sort`
+- **Code quality**: `rustfmt`, `clippy`, `cargo-sort` (for single crate)
