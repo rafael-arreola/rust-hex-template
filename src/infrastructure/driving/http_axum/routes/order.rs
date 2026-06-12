@@ -9,7 +9,7 @@ use crate::infrastructure::driving::http_axum::server::{
     error::ApiError,
     response::{GenericApiResponse, GenericPagination},
     state::AppState,
-    validation::ValidatedJson,
+    validation::ValidatedBody,
 };
 use axum::{
     Router,
@@ -40,7 +40,7 @@ pub fn router() -> Router<AppState> {
 #[tracing::instrument(skip_all)]
 pub async fn create_order(
     State(service): State<Arc<OrderService>>,
-    ValidatedJson(req): ValidatedJson<CreateOrderInput>,
+    ValidatedBody(req): ValidatedBody<CreateOrderInput>,
 ) -> Result<GenericApiResponse<OrderOutput>, ApiError> {
     let user_id = UserId::new(req.user_id);
     let product_id = ProductId::new(req.product_id);

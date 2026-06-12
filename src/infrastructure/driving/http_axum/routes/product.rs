@@ -7,7 +7,7 @@ use crate::infrastructure::driving::http_axum::server::{
     error::ApiError,
     response::{GenericApiResponse, GenericPagination},
     state::AppState,
-    validation::ValidatedJson,
+    validation::ValidatedBody,
 };
 use axum::{
     Router,
@@ -39,7 +39,7 @@ pub fn router() -> Router<AppState> {
 #[tracing::instrument(skip_all)]
 pub async fn create_product(
     State(service): State<Arc<ProductService>>,
-    ValidatedJson(req): ValidatedJson<CreateProductInput>,
+    ValidatedBody(req): ValidatedBody<CreateProductInput>,
 ) -> Result<GenericApiResponse<ProductOutput>, ApiError> {
     let metadata = ProductMetadata {
         description: req.description,
@@ -81,7 +81,7 @@ pub async fn list_products(
 pub async fn update_metadata(
     State(service): State<Arc<ProductService>>,
     Path(id): Path<String>,
-    ValidatedJson(req): ValidatedJson<UpdateProductMetadataInput>,
+    ValidatedBody(req): ValidatedBody<UpdateProductMetadataInput>,
 ) -> Result<GenericApiResponse<ProductOutput>, ApiError> {
     let product_id = ProductId::new(id);
     let metadata = ProductMetadata {

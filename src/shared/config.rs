@@ -16,6 +16,7 @@ pub struct Env {
     pub debug_level: String,
     pub cors_origins: String,
     pub drain_timeout_secs: u64,
+    pub msgpack_enabled: bool,
 }
 
 static CONFIG: OnceLock<Env> = OnceLock::new();
@@ -42,6 +43,7 @@ impl Env {
             debug_level: env::var("DEBUG_LEVEL").unwrap_or_else(|_| "info".to_string()),
             cors_origins: env::var("CORS_ORIGINS").unwrap_or_else(|_| "*".to_string()),
             drain_timeout_secs: parse_timeout("DRAIN_TIMEOUT_SECS", 10),
+            msgpack_enabled: parse_bool("ENABLE_MSGPACK", true),
         }
     }
 }
@@ -108,4 +110,12 @@ fn parse_port() -> u16 {
 
 fn parse_timeout(name: &str, default: u64) -> u64 {
     env::var(name).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
+}
+
+fn parse_bool(name: &str, default: bool) -> bool {
+    match env::var(name).as_deref() {
+        Ok("1" | "true" | "yes" | "TRUE" | "YES") => true,
+        Ok("0" | "false" | "no" | "FALSE" | "NO") => false,
+        _ => default,
+    }
 }

@@ -7,7 +7,7 @@ use crate::infrastructure::driving::http_axum::server::{
     error::ApiError,
     response::{GenericApiResponse, GenericPagination},
     state::AppState,
-    validation::ValidatedJson,
+    validation::ValidatedBody,
 };
 use axum::{
     Router,
@@ -38,7 +38,7 @@ pub fn router() -> Router<AppState> {
 #[tracing::instrument(skip_all)]
 pub async fn create_user(
     State(service): State<Arc<UserService>>,
-    ValidatedJson(req): ValidatedJson<CreateUserInput>,
+    ValidatedBody(req): ValidatedBody<CreateUserInput>,
 ) -> Result<GenericApiResponse<UserOutput>, ApiError> {
     let user: User = service.create_user(&req.name, &req.email).await?;
     Ok(GenericApiResponse::success(user.into()))

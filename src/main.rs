@@ -93,6 +93,7 @@ async fn main() {
         .with_cors_origins(env.cors_origins.clone())
         .with_http(env.port)
         .with_drain_timeout(env.drain_timeout_secs)
+        .with_msgpack(env.msgpack_enabled)
         .run()
         .await;
 }

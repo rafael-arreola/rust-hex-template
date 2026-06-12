@@ -6,7 +6,14 @@ use axum::{
 };
 use opentelemetry::trace::TraceContextExt;
 use serde::Serialize;
+use std::sync::Arc;
 use tracing_opentelemetry::OpenTelemetrySpanExt;
+
+/// Type-erased handle to the original response value, stored in the response
+/// extensions so the MessagePack negotiation middleware can encode it once,
+/// directly from the value — no JSON byte round-trip.
+#[derive(Clone)]
+pub struct NegotiablePayload(pub Arc<dyn erased_serde::Serialize + Send + Sync>);
 
 #[derive(Debug, Serialize)]
 pub struct GenericPagination<T> {
@@ -32,10 +39,15 @@ pub struct GenericApiResponse<T> {
 
 impl<T> IntoResponse for GenericApiResponse<T>
 where
-    T: Serialize,
+    T: Serialize + Send + Sync + 'static,
 {
     fn into_response(self) -> Response {
-        (self.status, Json(self)).into_response()
+        let status = self.status;
+        let shared = Arc::new(self);
+
+        let mut response = (status, Json(&*shared)).into_response();
+        response.extensions_mut().insert(NegotiablePayload(shared));
+        response
     }
 }
 

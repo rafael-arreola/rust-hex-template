@@ -14,6 +14,11 @@ impl MongoProvider {
 
         client_options.app_name = Some(app_name.to_string());
 
+        // Emit OpenTelemetry spans per command/operation, parented to the
+        // active trace via the global tracer provider set in shared::tracer.
+        client_options.tracing =
+            Some(mongodb::otel::OpentelemetryOptions::builder().enabled(true).build());
+
         let client = Client::with_options(client_options)
             .map_err(|_| DomainError::database("Failed to initialize MongoDB client"))?;
 

@@ -52,7 +52,9 @@ src/application/shared/mod.rs                    → Reusable sub-flows WITH I/O
 
 src/shared.rs                                    → Shared capabilities module router (former shared/src/lib.rs)
 src/shared/config.rs                             → Environment configuration (loaded once)
+src/shared/http_client.rs                        → Instrumented reqwest client (traceparent propagation)
 src/shared/tracer.rs                             → OpenTelemetry & tracing setup
+src/shared/tracer/format.rs                      → GCP Cloud Logging JSON event formatter
 
 src/infrastructure.rs                            → General infrastructure module router
 src/infrastructure/driven.rs                     → Driven adapters module router
@@ -202,7 +204,7 @@ impl UserRepositoryPort for UserRepository {
 
 Handlers do zero business logic. Their job:
 
-1. Validate input via `ValidatedJson` (backed by `validator` crate).
+1. Validate input via `ValidatedBody` (backed by `validator` crate; deserializes JSON or MessagePack according to `Content-Type`).
 2. Convert string path/query params to typed IDs.
 3. Call the service with primitives/domain values.
 4. Convert the domain result into an output DTO.
@@ -341,20 +343,43 @@ Every service exposes two endpoints outside the `/api/v1` namespace:
 
 Handlers live in `src/infrastructure/driving/http_axum/server/health.rs`. The readiness checker is injected from `main.rs` as a `HealthChecker` closure.
 
-## X-Request-Id Middleware
+## MessagePack Negotiation (bidirectional)
 
-All HTTP responses include an `X-Request-Id` header. The middleware in `src/infrastructure/driving/http_axum/server/middleware.rs`:
+Content negotiation is split by direction:
 
-- Propagates the incoming `X-Request-Id` header if present.
-- Generates a UUID v7 if absent.
-- Records the value in the tracing span for log correlation.
+- **Input (always on)**: `ValidatedBody<T>` deserializes the request body straight into the DTO — MessagePack when `Content-Type: application/vnd.msgpack`, JSON otherwise — then runs `validator` rules. No intermediate `Value` tree.
+- **Output (on by default, disable via `ENABLE_MSGPACK=false`)**: `GenericApiResponse::into_response` stores a type-erased `Arc` of itself in the response extensions (`NegotiablePayload`). When the client sends `Accept: application/vnd.msgpack`, the `msgpack_negotiation` middleware encodes that original value **once** with `rmp_serde::to_vec_named` (named maps, mirroring the JSON shape) and swaps the body. Without the header — or when the flag is off — the JSON body passes through untouched at zero cost.
+
+Rules: handlers never branch on format; responses must keep producing a valid JSON body by default (the middleware swap is an optimization, never a requirement); use `to_vec_named`, not `to_vec` — positional arrays break clients that mirror the JSON contract.
+
+## Trace Context & X-Request-Id Middleware
+
+The `trace_context` middleware in `src/infrastructure/driving/http_axum/server/middleware.rs` owns the per-request span. There is no `TraceLayer` — adding one creates disconnected root traces. The middleware:
+
+- Extracts the remote trace context from the W3C `traceparent` header (via the global OpenTelemetry propagator), falling back to GCP's legacy `X-Cloud-Trace-Context`. If present, the request span joins that trace via `span.set_parent(...)`; otherwise a new `trace_id` is generated.
+- Attaches the span's OTel context as the task-local current context (`.with_context(...)`) so natively instrumented clients (e.g. the MongoDB driver) parent their spans to the request's trace. Removing this silently orphans driver spans.
+- Propagates the incoming `X-Request-Id` header if present, generates a UUID v7 if absent, echoes it on the response, and records it as a **declared field** on the request span. Never use `Span::current().record(...)` with undeclared fields — tracing drops them silently.
+
+## Distributed Tracing & Telemetry Propagation
+
+- `shared/tracer.rs` registers both the global text-map propagator (`TraceContextPropagator`) and the global tracer provider (`global::set_tracer_provider`). Instrumented libraries resolve the tracer from the global provider — without it their spans go nowhere.
+- **OTel version alignment is mandatory**: `opentelemetry`, `opentelemetry_sdk`, `opentelemetry-semantic-conventions`, `opentelemetry-gcloud-trace`, `tracing-opentelemetry`, and the `reqwest-tracing` feature flag must all target the same OpenTelemetry minor — pinned by whatever the `mongodb` driver requires (currently 0.31). Mixing minors compiles fine but splits spans into disconnected traces.
+- MongoDB: the driver's `opentelemetry` feature is enabled, plus `bson`'s `serde_json-1` feature (the driver's otel code requires it with `bson-3`). The provider activates it via `OpentelemetryOptions::builder().enabled(true)`.
+- Outbound HTTP: always use `shared::http_client::instrumented_client()` (reqwest + `reqwest-tracing`), injected from `main.rs` into driven adapters. Never construct a bare `reqwest::Client` — it does not propagate `traceparent`.
+- GCP structured logs are emitted by the custom `CloudLoggingFormat` in `shared/tracer/format.rs`. Do not reintroduce `tracing-stackdriver`: it pins `tracing-opentelemetry 0.23` internally, so it cannot read the OTel context of modern spans and silently drops the `logging.googleapis.com/trace` correlation field.
+- When the GCP exporter is unavailable (local dev), `init_tracing` falls back to plain `fmt` logs plus an exporterless in-process tracer, so every request still carries a valid `trace_id`.
+
+## Graceful Shutdown
+
+`SIGTERM`/`Ctrl+C` starts draining **immediately** — the shutdown future resolves on the signal, and `drain_timeout` acts as a hard cap on in-flight connections (enforced with a `oneshot` + `tokio::select!`). Never sleep before resolving the shutdown future: that delays the drain and leaves in-flight requests unbounded.
 
 ## Code Style Files
 
-The project includes `rustfmt.toml` and `clippy.toml` at the repository root. These enforce:
+The project includes `rustfmt.toml` and `clippy.toml` at the repository root, plus a `[lints.clippy]` section in `Cargo.toml` that **denies** `unwrap_used`, `expect_used`, and `dbg_macro`. These enforce:
 
 - Consistent formatting across all contributors.
-- Linting rules that allow `unwrap`, `expect`, and `dbg!` exclusively within test code.
+- The "no `unwrap()`/`expect()`" error rule at build time — not as convention. `clippy.toml` re-allows them exclusively within test code.
+- Do not remove the `[lints.clippy]` section: without it, `clippy.toml`'s test allowances configure lints that are never enabled.
 
 # Context
 
