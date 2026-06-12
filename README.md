@@ -27,7 +27,9 @@
     ├── shared.rs                   ← Enrutador de capacidades técnicas
     ├── shared/                     ← Herramientas técnicas sin lógica de negocio
     │   ├── config.rs               ← carga de .env + struct Env
-    │   └── tracer.rs               ← OpenTelemetry + tracing
+    │   ├── http_client.rs          ← cliente reqwest instrumentado (traceparent)
+    │   ├── tracer.rs               ← OpenTelemetry + tracing + TracerGuard
+    │   └── tracer/format.rs        ← formatter JSON de Cloud Logging
     ├── infrastructure.rs           ← Enrutador general de infraestructura
     └── infrastructure/
         ├── driven.rs               ← Enrutador de driven adapters
@@ -173,7 +175,7 @@ Importan **directamente** los services de `application/`. Sin trait de por medio
 // src/infrastructure/driving/http_axum/routes/order.rs
 pub async fn create_order(
     State(service): State<Arc<OrderService>>,  // ← tipo concreto, sin trait
-    ValidatedJson(input): ValidatedJson<CreateOrderInput>,
+    ValidatedBody(input): ValidatedBody<CreateOrderInput>,  // ← JSON o MessagePack según Content-Type
 ) -> Result<GenericApiResponse<OrderOutput>, ApiError> {
     let order = service.create_order(&input.user_id, &input.product_id, input.quantity).await?;
     Ok(GenericApiResponse::success(order.into()))
@@ -184,10 +186,12 @@ pub async fn create_order(
 
 ### `src/shared/` — Capacidades técnicas
 
-| Archivo     | Qué contiene                                | Dependencias         |
-| ----------- | ------------------------------------------- | -------------------- |
-| `config.rs` | Carga de `.env` + struct `Env` + `OnceLock` | Ninguna del proyecto |
-| `tracer.rs` | OpenTelemetry + tracing subscriber setup    | Ninguna del proyecto |
+| Archivo            | Qué contiene                                                          | Dependencias         |
+| ------------------ | --------------------------------------------------------------------- | -------------------- |
+| `config.rs`        | Carga de `.env` + struct `Env` + `OnceLock`                            | Ninguna del proyecto |
+| `http_client.rs`   | Cliente reqwest instrumentado (propaga `traceparent` en salidas HTTP)  | Ninguna del proyecto |
+| `tracer.rs`        | OpenTelemetry + tracing subscriber setup + `TracerGuard` (flush)       | Ninguna del proyecto |
+| `tracer/format.rs` | Formatter JSON de Cloud Logging (correlación log↔trace)                | Ninguna del proyecto |
 
 **Regla:** cero lógica de negocio. Se importan como dependencia en `application/` e `infrastructure/`. El dominio **no** las usa.
 

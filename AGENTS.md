@@ -32,7 +32,7 @@ These rules are non-negotiable. They exist to make the codebase predictable acro
 
 ```
 Cargo.toml                                       → Root package configuration
-src/main.rs                                      → Composition Root & DI wiring (Main binary)
+src/main.rs                                      → Composition Root & DI wiring (`main` orchestrates, `serve` holds the body)
 src/domain.rs                                    → Domain module router (former domain/src/lib.rs)
 src/domain/entities.rs                           → Entity module router
 src/domain/entities/{entity}.rs                  → Entity struct + typed ID + marker
@@ -69,13 +69,14 @@ src/infrastructure/driving.rs                    → Driving adapters module rou
 src/infrastructure/driving/http_axum.rs          → Axum HTTP adaptor module router (former http-axum/src/lib.rs)
 src/infrastructure/driving/http_axum/routes.rs              → Router registration
 src/infrastructure/driving/http_axum/routes/{entity}.rs     → Axum handlers
+src/infrastructure/driving/http_axum/routes/{entity}/dtos.rs → *Input / *Output DTOs (serde + validator)
 src/infrastructure/driving/http_axum/server.rs              → Server module router
 src/infrastructure/driving/http_axum/server/error.rs        → ApiError definition
 src/infrastructure/driving/http_axum/server/health.rs       → Health check endpoints (/healthz, /readyz)
-src/infrastructure/driving/http_axum/server/middleware.rs   → Cross-cutting HTTP middleware (e.g. X-Request-Id)
-src/infrastructure/driving/http_axum/server/response.rs     → GenericApiResponse
+src/infrastructure/driving/http_axum/server/middleware.rs   → Trace context + X-Request-Id middleware
+src/infrastructure/driving/http_axum/server/response.rs     → GenericApiResponse + NegotiablePayload
 src/infrastructure/driving/http_axum/server/state.rs        → AppState (Services container)
-src/infrastructure/driving/http_axum/server/validation.rs   → Validation utilities
+src/infrastructure/driving/http_axum/server/validation.rs   → ValidatedBody extractor (JSON/MessagePack + validator)
 
 rustfmt.toml                                     → Rustfmt configuration (workspace-wide, mandatory)
 clippy.toml                                      → Clippy configuration (workspace-wide, mandatory)
@@ -309,7 +310,7 @@ The root crate declares only dependencies it actually imports in its source code
 
 ## Provider Fail-Fast
 
-All infrastructure providers (MongoDB, Redis, etc.) instantiated in `src/main.rs` follow the same fail-fast pattern:
+All infrastructure providers (MongoDB, Redis, etc.) instantiated in `serve()` (`src/main.rs`) follow the same fail-fast pattern (early returns are safe — the tracer flush in `main` still runs):
 
 ```rust
 let provider = match Provider::new(&url).await {
@@ -388,7 +389,8 @@ The project includes `rustfmt.toml` and `clippy.toml` at the repository root, pl
 - **Framework**: Axum (HTTP), Tokio (async runtime)
 - **Databases**: MongoDB (primary), Redis (caching/helpers)
 - **Structure**: Monolithic Cargo project with modules: `domain`, `application`, `infra_mongo`, `infra_redis`, `infra_http_axum`, `shared` and `main.rs`
-- **Observability**: OpenTelemetry + `tracing` with structured JSON logging via `as_json!` macro
-- **Validation**: `validator` crate for DTO syntactic validation
-- **Serialization**: `serde`, `bson`
-- **Code quality**: `rustfmt`, `clippy`, `cargo-sort` (for single crate)
+- **Observability**: OpenTelemetry + `tracing` (aligned on the OTel minor pinned by the `mongodb` driver), W3C trace propagation in/out, custom Cloud Logging JSON formatter, structured object logging via `as_json!` macro
+- **Validation**: `validator` crate for DTO syntactic validation (via `ValidatedBody`)
+- **Serialization**: `serde`, `bson`, `rmp-serde` (MessagePack content negotiation), `erased-serde` (deferred response encoding)
+- **Outbound HTTP**: `reqwest` + `reqwest-middleware`/`reqwest-tracing` (`shared::http_client::instrumented_client`)
+- **Code quality**: `rustfmt`, `clippy` (+ `[lints.clippy]` denies for `unwrap`/`expect`/`dbg!`), `cargo-sort` (for single crate)
