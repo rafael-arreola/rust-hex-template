@@ -24,6 +24,7 @@ These rules are non-negotiable. They exist to make the codebase predictable acro
 | Port traits            | `{Entity}RepositoryPort`              | `UserRepositoryPort`                | `UserRepository` (as trait) |
 | Infrastructure structs | `{Entity}Repository` — no tech prefix | `UserRepository` (in `infra_mongo`) | `MongoUserRepository`       |
 | DB collections/tables  | plural, snake_case                    | `users`, `order_items`              | `user`, `orderItems`        |
+| BSON document fields   | snake_case, always                    | `total_price`, `created_at`         | `totalPrice`, `createdAt`   |
 | API routes             | plural                                | `/api/v1/users`, `/api/v1/orders`   | `/api/v1/user`              |
 | DTOs                   | `*Input` / `*Output` suffix           | `CreateUserInput`, `UserOutput`     | `UserDto`, `UserRequest`    |
 | Variables & fields     | full words, no abbreviations          | `user_email`, `page_number`         | `usr`, `idx`, `tmp`         |
@@ -246,7 +247,23 @@ pub type DomainResult<T> = std::result::Result<T, DomainError>;
 ```
 
 - `ApiError` in the HTTP layer is a struct — not an enum — with `code`, `message`, and `status`. The `From<DomainError>` mapping centralizes the code-to-status relationship in one place.
-- Error responses follow the shape `{ "trace_id": "...", "error": { "code": "NOT_FOUND", "message": "..." } }`.
+
+## HTTP Response Envelope
+
+Every HTTP response — success or error — uses the same envelope, built exclusively by `GenericApiResponse` (`server/response.rs`). Handlers never assemble response JSON by hand.
+
+```json
+// Success: trace_id + data
+{ "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736", "data": { "id": "u1", "name": "Ada" } }
+
+// Error: same envelope; `data` carries the detail, `cause` carries the stable code
+{ "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736", "data": { "message": "User not found: u9" }, "cause": "NOT_FOUND" }
+```
+
+- `trace_id` is always present (taken from the active OTel span; zeros when tracing is unavailable).
+- `data` carries the payload. On errors it is an `ErrorDetail` object (`{ "message": ... }`) — an object, not a bare string, so error payloads can grow fields without breaking clients.
+- `cause` appears **only** on errors and is always a value of `DomainError::code()` (e.g. `NOT_FOUND`, `ALREADY_EXISTS`, `INVALID_INPUT`, `BUSINESS_RULE_VIOLATION`, `INTERNAL_ERROR`). Clients branch on `cause` + HTTP status, never on `message`.
+- There is no top-level `error` field — that legacy shape is retired.
 
 ## Response format
 
@@ -334,6 +351,8 @@ if let Err(e) = repository.create_indexes().await {
 ## Model Conversion Consistency
 
 All `{Entity}Model` structs in `src/infrastructure/driven/mongo/{entity}/model.rs` implement `From<Entity> for Model` and `From<Model> for Entity`. Do not use `TryFrom` — it introduces an inconsistent pattern across entities. Invalid IDs are handled silently via `.unwrap_or_default()` for `ObjectId`.
+
+**MongoDB is snake_case, always**: collections are plural snake_case (`users`, `order_items`) and every document field is snake_case. Each `{Entity}Model` declares `#[serde(rename_all = "snake_case")]` to make the contract explicit; never add a field-level `rename` to camelCase (the only allowed field rename is `_id`). Queries and index definitions in `doc! { ... }` must reference snake_case field names.
 
 ## Health Check
 

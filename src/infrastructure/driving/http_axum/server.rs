@@ -300,7 +300,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn rejects_invalid_msgpack_body() {
+    async fn rejects_invalid_msgpack_body_with_standard_error_envelope() {
         let request = HttpRequest::post("/echo")
             .header(header::CONTENT_TYPE, "application/vnd.msgpack")
             .body(Body::from(vec![0xc1, 0xff, 0x00]))
@@ -308,6 +308,12 @@ mod tests {
 
         let response = test_app().oneshot(request).await.unwrap();
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+        let entry: serde_json::Value = serde_json::from_slice(&body_bytes(response).await).unwrap();
+        assert!(entry["trace_id"].is_string());
+        assert_eq!(entry["cause"], "INVALID_INPUT");
+        assert!(entry["data"]["message"].is_string());
+        assert!(entry.get("error").is_none(), "legacy `error` field must be gone");
     }
 
     #[tokio::test]

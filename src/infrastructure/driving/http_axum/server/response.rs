@@ -1,4 +1,3 @@
-use crate::infrastructure::driving::http_axum::server::error::ApiErrorPayload;
 use axum::{
     Json,
     http::StatusCode,
@@ -23,6 +22,21 @@ pub struct GenericPagination<T> {
     pub limit: u32,
 }
 
+/// Body of an error response, carried inside `data`. Kept as an object (not a
+/// bare string) so error payloads can grow fields without breaking clients.
+#[derive(Debug, Serialize)]
+pub struct ErrorDetail {
+    pub message: String,
+}
+
+/// Standard HTTP envelope — every response, success or error, has the same
+/// shape: `trace_id` for correlation and `data` for the payload. Errors add
+/// `cause` with the stable machine-readable code from `DomainError::code()`.
+///
+/// ```json
+/// { "trace_id": "4bf9…", "data": { "id": "u1", "name": "Ada" } }
+/// { "trace_id": "4bf9…", "data": { "message": "User not found: u9" }, "cause": "NOT_FOUND" }
+/// ```
 #[derive(Debug, Serialize)]
 pub struct GenericApiResponse<T> {
     pub trace_id: String,
@@ -30,8 +44,9 @@ pub struct GenericApiResponse<T> {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub data: Option<T>,
 
+    /// Stable, machine-readable error code. Present only on errors.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<ApiErrorPayload>,
+    pub cause: Option<&'static str>,
 
     #[serde(skip)]
     pub status: StatusCode,
@@ -68,16 +83,18 @@ impl<T> GenericApiResponse<T> {
         Self {
             trace_id: Self::get_current_trace_id(),
             data: Some(data),
-            error: None,
+            cause: None,
             status: StatusCode::OK,
         }
     }
+}
 
+impl GenericApiResponse<ErrorDetail> {
     pub fn error(code: &'static str, message: String, status: StatusCode) -> Self {
         Self {
             trace_id: Self::get_current_trace_id(),
-            data: None,
-            error: Some(ApiErrorPayload { code, message }),
+            data: Some(ErrorDetail { message }),
+            cause: Some(code),
             status,
         }
     }
@@ -103,7 +120,7 @@ impl<T: Serialize> GenericApiResponse<GenericPagination<T>> {
         GenericApiResponse {
             trace_id: Self::get_current_trace_id(),
             data: Some(GenericPagination { data, total, page, limit }),
-            error: None,
+            cause: None,
             status: StatusCode::OK,
         }
     }
