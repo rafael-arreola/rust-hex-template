@@ -368,6 +368,7 @@ The `trace_context` middleware in `src/infrastructure/driving/http_axum/server/m
 - Outbound HTTP: always use `shared::http_client::instrumented_client()` (reqwest + `reqwest-tracing`), injected from `main.rs` into driven adapters. Never construct a bare `reqwest::Client` — it does not propagate `traceparent`.
 - GCP structured logs are emitted by the custom `CloudLoggingFormat` in `shared/tracer/format.rs`. Do not reintroduce `tracing-stackdriver`: it pins `tracing-opentelemetry 0.23` internally, so it cannot read the OTel context of modern spans and silently drops the `logging.googleapis.com/trace` correlation field.
 - When the GCP exporter is unavailable (local dev), `init_tracing` falls back to plain `fmt` logs plus an exporterless in-process tracer, so every request still carries a valid `trace_id`.
+- `init_tracing` returns a `TracerGuard`; `main.rs` keeps it and calls `guard.shutdown()` after the server exits to flush batched spans. The service body lives in `serve()` so every exit path — including provider fail-fast returns — goes through the flush. Never add an exit path that bypasses it.
 
 ## Graceful Shutdown
 

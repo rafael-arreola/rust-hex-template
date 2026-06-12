@@ -23,16 +23,29 @@ use std::sync::Arc;
 #[tokio::main]
 async fn main() {
     if let Err(e) = rustls::crypto::ring::default_provider().install_default() {
-        tracing::error!("Failed to install rustls crypto provider: {:?}", e);
+        eprintln!("Failed to install rustls crypto provider: {:?}", e);
         return;
     }
 
     let env = config::get();
 
-    if let Err(e) = tracer::init_tracing().await {
-        eprintln!("Failed to initialize tracing: {}", e);
-    }
+    let tracer_guard = match tracer::init_tracing().await {
+        Ok(guard) => Some(guard),
+        Err(e) => {
+            eprintln!("Failed to initialize tracing: {}", e);
+            None
+        }
+    };
 
+    // Every exit path goes through here so buffered spans always get flushed.
+    serve(env).await;
+
+    if let Some(guard) = tracer_guard {
+        guard.shutdown();
+    }
+}
+
+async fn serve(env: &'static shared::config::Env) {
     tracing::info!("Starting {} (env: {})", env.service_name, env.app_env);
 
     // --- MongoDB ---
