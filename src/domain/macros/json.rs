@@ -1,6 +1,6 @@
-/// Serializa de forma segura una estructura para logs estructurados en tracing.
+/// Serializes a struct safely for structured tracing logs.
 ///
-/// Si la serialización falla, retorna un objeto JSON con el detalle del error en lugar de provocar un pánico.
+/// If serialization fails, returns a JSON object with the error detail instead of panicking.
 #[macro_export]
 macro_rules! as_json {
     ($val:expr) => {

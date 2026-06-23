@@ -129,14 +129,38 @@ pub trait UserRepositoryPort: Send + Sync {
 - Methods receive and return only domain types and primitives.
 - Every port trait uses `#[async_trait]` and is bounded by `Send + Sync`.
 
+### Entity (`src/domain/entities/{entity}.rs`)
+
+Every entity declares a marker struct and a typed ID alias using `DomainId<T>`:
+
+```rust
+use crate::domain::values;
+
+pub struct UserMarker;
+pub type UserId = values::DomainId<UserMarker>;
+
+pub struct User {
+    pub id: Option<UserId>,
+    pub name: String,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+    pub deleted_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+```
+
+- `DomainId<T>` provides type safety — a `UserId` cannot be mistaken for a `ProductId` at compile time.
+- Construct IDs with `UserId::new(string)` in handlers; dereference with `&**id` to get the inner `&str` in repositories.
+- IDs are `Option` in entities — `None` until the repository assigns them after `create`.
+
 ### Service (`src/application/{entity}.rs`)
 
 ```rust
 use crate::domain::port::user::UserRepositoryPort;
-use crate::domain::entities::user::User;
-use crate::domain::error::DomainResult;
+use crate::domain::entities::user::{User, UserId};
+use crate::domain::error::{DomainError, DomainResult};
 use std::sync::Arc;
 
+#[derive(Clone)]
 pub struct UserService {
     repo: Arc<dyn UserRepositoryPort>,
 }
@@ -146,16 +170,37 @@ impl UserService {
         Self { repo }
     }
 
-    #[tracing::instrument(skip_all)]
-    pub async fn create_user(&self, email: &str) -> DomainResult<User> {
-        // ...
+    #[tracing::instrument(skip_all, fields(%email))]
+    pub async fn create_user(&self, name: &str, email: &str) -> DomainResult<User> {
+        let existing = self.repo.find_by_email(email).await?;
+        if existing.is_some() {
+            return Err(DomainError::duplicate("User", "email", email));
+        }
+
+        let now = chrono::Utc::now();
+        let mut user = User {
+            id: None,
+            name: name.to_string(),
+            email: email.to_string(),
+            created_at: now,
+            updated_at: now,
+            deleted_at: None,
+        };
+
+        let id = self.repo.create(&user).await?;
+        user.id = Some(id);
+
+        tracing::info!("User created");
+        Ok(user)
     }
 }
 ```
 
 - Constructor injection via `Arc<dyn Port>` (dynamic dispatch).
-- Every public method instrumented with `#[tracing::instrument(skip_all)]`.
+- Services derive `Clone` so they can be shared via `Arc` in `AppState`.
+- Every public method instrumented with `#[tracing::instrument(skip_all, fields(...))]` — always declare at least one field (e.g. `%email`, `%id`) for structured log correlation.
 - Parameters are primitives, typed IDs, or domain values. Never DTOs.
+- Domain entities are constructed inline with `chrono::Utc::now()` for timestamps; IDs are `None` until the repository assigns them.
 
 ### Domain Service (`src/domain/services/{service}.rs`)
 
@@ -181,26 +226,74 @@ impl PricingService {
 ### Repository (`src/infrastructure/driven/mongo/{entity}/repository.rs`)
 
 ```rust
+use crate::domain::entities::user::{User, UserId};
+use crate::domain::error::{DomainError, DomainResult};
+use crate::domain::port::user::UserRepositoryPort;
 use crate::infrastructure::driven::mongo::user::model::UserModel;
 use async_trait::async_trait;
-use crate::domain::entities::user::{User, UserId};
-use crate::domain::error::DomainResult;
-use crate::domain::port::user::UserRepositoryPort;
+use mongodb::{
+    Collection, Database,
+    bson::{doc, oid::ObjectId},
+};
 
 #[derive(Clone)]
-pub struct UserRepository { /* collection / pool */ }
+pub struct UserRepository {
+    collection: Collection<UserModel>,
+}
+
+impl UserRepository {
+    pub fn new(db: &Database) -> Self {
+        Self { collection: db.collection::<UserModel>("users") }
+    }
+
+    pub async fn create_indexes(&self) -> DomainResult<()> {
+        // IndexModel::builder()... see real entity for full pattern
+        Ok(())
+    }
+}
 
 #[async_trait]
 impl UserRepositoryPort for UserRepository {
+    #[tracing::instrument(skip_all)]
     async fn create(&self, user: &User) -> DomainResult<UserId> {
         let model = UserModel::from(user.clone());
-        // Map every driver error with .map_err(|e| DomainError::database(...))
+        let result = self
+            .collection
+            .insert_one(model)
+            .await
+            .map_err(|e| DomainError::database(e.to_string()))?;
+
+        result
+            .inserted_id
+            .as_object_id()
+            .map(|oid| UserId::new(oid.to_hex()))
+            .ok_or_else(|| DomainError::internal("Failed to get inserted ID"))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn delete(&self, id: &UserId) -> DomainResult<bool> {
+        let oid = ObjectId::parse_str(&**id)
+            .map_err(|_| DomainError::invalid_param("id", "User", &**id))?;
+
+        let now = mongodb::bson::DateTime::from_chrono(chrono::Utc::now());
+
+        let result = self
+            .collection
+            .update_one(
+                doc! { "_id": oid, "deleted_at": { "$exists": false } },
+                doc! { "$set": { "deleted_at": now } },
+            )
+            .map_err(|e| DomainError::database(e.to_string()))?;
+
+        Ok(result.matched_count > 0)
     }
 }
 ```
 
 - Implements `From<Entity> for Model` and `From<Model> for Entity` in `model.rs`.
 - Map all external errors with `.map_err(...)`. Driver errors never propagate raw.
+- `create_indexes` is idempotent and called at startup in `main.rs`.
+- Never remove documents — `delete` always does a soft-delete via `$set { deleted_at: now }`.
 
 ## Handler rules
 
@@ -211,6 +304,59 @@ Handlers do zero business logic. Their job:
 3. Call the service with primitives/domain values.
 4. Convert the domain result into an output DTO.
 5. Wrap it in `GenericApiResponse`.
+
+DTOs follow a strict `*Input` / `*Output` naming convention. Every `*Output` DTO implements `From<Entity> for Output` so handlers convert with `.into()`:
+
+```rust
+#[derive(Serialize)]
+pub struct UserOutput {
+    pub id: String,
+    pub name: String,
+    pub email: String,
+}
+
+impl From<User> for UserOutput {
+    fn from(user: User) -> Self {
+        Self {
+            id: user.id.map(|id| id.into_inner()).unwrap_or_default(),
+            name: user.name,
+            email: user.email,
+        }
+    }
+}
+```
+
+- Handlers call `service.method().await?` then `Ok(GenericApiResponse::success(result.into()))`.
+- `*Input` DTOs use `#[derive(Deserialize, Validate)]` for syntactic validation at the HTTP boundary.
+
+## ServerLauncher (builder pattern)
+
+The HTTP server is configured and started via `ServerLauncher` in `src/infrastructure/driving/http_axum/server.rs`:
+
+```rust
+ServerLauncher::new(state)
+    .with_cors_origins(env.cors_origins.clone())
+    .with_http(env.port)
+    .with_drain_timeout(env.drain_timeout_secs)
+    .with_msgpack(env.msgpack_enabled)
+    .run()
+    .await;
+```
+
+- `new(state)` — receives `AppState` with all services injected.
+- `with_cors_origins(origins)` — comma-separated or `"*"`.
+- `with_http(port)` — if omitted, the HTTP server is not started.
+- `with_drain_timeout(secs)` — hard cap on in-flight connections during graceful shutdown.
+- `with_msgpack(enabled)` — toggles `Accept: application/vnd.msgpack` negotiation (on by default).
+- `run()` — binds, starts the server, and blocks until shutdown signal.
+
+Inside `run()`, the server registers `/healthz`, `/readyz`, nests `/api/v1` routes, and layers middleware in this order:
+
+1. `msgpack_negotiation` (if enabled)
+2. `trace_context` (request span + X-Request-Id)
+3. `CompressionLayer` / `RequestDecompressionLayer`
+4. `DefaultBodyLimit` (32 MiB)
+5. CORS
 
 ## Error rules
 
@@ -225,24 +371,90 @@ Handlers do zero business logic. Their job:
 pub enum DomainError {
     #[error("{entity} not found: {id}")]
     NotFound { entity: &'static str, id: String },
+
     #[error("{entity} already exists: {details}")]
     AlreadyExists { entity: &'static str, details: String },
+
     #[error("Invalid {field}: {reason}")]
     Invalid { field: &'static str, reason: String },
-    #[error("Internal: {0}")]
+
+    #[error("{field} is required")]
+    Required { field: &'static str },
+
+    #[error("Unauthorized: {0}")]
+    Unauthorized(String),
+
+    #[error("Forbidden: {0}")]
+    Forbidden(String),
+
+    #[error("Business rule violated: {0}")]
+    BusinessRule(String),
+
+    #[error("External service error: {service} - {message}")]
+    ExternalService { service: String, message: String },
+
+    #[error("Database error: {0}")]
+    Database(String),
+
+    #[error("Internal error: {0}")]
     Internal(String),
 }
 
 impl DomainError {
+    /// Returns a stable, machine-readable code for every error variant.
     pub fn code(&self) -> &'static str {
         match self {
             Self::NotFound { .. } => "NOT_FOUND",
             Self::AlreadyExists { .. } => "ALREADY_EXISTS",
             Self::Invalid { .. } => "INVALID_INPUT",
+            Self::Required { .. } => "REQUIRED_FIELD",
+            Self::Unauthorized(_) => "UNAUTHORIZED",
+            Self::Forbidden(_) => "FORBIDDEN",
+            Self::BusinessRule(_) => "BUSINESS_RULE_VIOLATION",
+            Self::ExternalService { .. } => "EXTERNAL_SERVICE_UNAVAILABLE",
+            Self::Database(_) => "INTERNAL_ERROR",
             Self::Internal(_) => "INTERNAL_ERROR",
         }
     }
+
+    /// Constructor: entity not found by its ID.
+    pub fn not_found(entity: &'static str, id: impl Into<String>) -> Self {
+        Self::NotFound { entity, id: id.into() }
+    }
+
+    /// Constructor: duplicate unique field (e.g. email already in use).
+    pub fn duplicate(entity: &'static str, field: &'static str, value: impl Into<String>) -> Self {
+        Self::AlreadyExists {
+            entity,
+            details: format!("{} '{}' already in use", field, value.into()),
+        }
+    }
+
+    /// Constructor: malformed or invalid parameter (e.g. bad ObjectId).
+    pub fn invalid_param(
+        param: &'static str,
+        entity: &'static str,
+        value: impl Into<String>,
+    ) -> Self {
+        Self::Invalid { field: param, reason: format!("Invalid {} ID: {}", entity, value.into()) }
+    }
+
+    /// Constructor: business rule violation.
+    pub fn business_rule(message: impl Into<String>) -> Self {
+        Self::BusinessRule(message.into())
+    }
+
+    /// Constructor: internal/unexpected error.
+    pub fn internal(message: impl Into<String>) -> Self {
+        Self::Internal(message.into())
+    }
+
+    /// Constructor: database driver error (always mapped, never propagated raw).
+    pub fn database(message: impl Into<String>) -> Self {
+        Self::Database(message.into())
+    }
 }
+
 pub type DomainResult<T> = std::result::Result<T, DomainError>;
 ```
 
@@ -264,6 +476,23 @@ Every HTTP response — success or error — uses the same envelope, built exclu
 - `data` carries the payload. On errors it is an `ErrorDetail` object (`{ "message": ... }`) — an object, not a bare string, so error payloads can grow fields without breaking clients.
 - `cause` appears **only** on errors and is always a value of `DomainError::code()` (e.g. `NOT_FOUND`, `ALREADY_EXISTS`, `INVALID_INPUT`, `BUSINESS_RULE_VIOLATION`, `INTERNAL_ERROR`). Clients branch on `cause` + HTTP status, never on `message`.
 - There is no top-level `error` field — that legacy shape is retired.
+
+Paginated list responses use `GenericApiResponse::paginated(data, total, page, limit)` which wraps the items in a `GenericPagination<T>` struct:
+
+```json
+// Paginated list
+{
+  "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736",
+  "data": {
+    "data": [{ "id": "...", "name": "Ada" }],
+    "total": 42,
+    "page": 1,
+    "limit": 20
+  }
+}
+```
+
+Every list handler follows the same pattern: call the service's list + count methods, map domain entities to `*Output` DTOs via `Into`, and wrap with `GenericApiResponse::paginated()`.
 
 ## Response format
 
@@ -353,6 +582,40 @@ if let Err(e) = repository.create_indexes().await {
 All `{Entity}Model` structs in `src/infrastructure/driven/mongo/{entity}/model.rs` implement `From<Entity> for Model` and `From<Model> for Entity`. Do not use `TryFrom` — it introduces an inconsistent pattern across entities. Invalid IDs are handled silently via `.unwrap_or_default()` for `ObjectId`.
 
 **MongoDB is snake_case, always**: collections are plural snake_case (`users`, `order_items`) and every document field is snake_case. Each `{Entity}Model` declares `#[serde(rename_all = "snake_case")]` to make the contract explicit; never add a field-level `rename` to camelCase (the only allowed field rename is `_id`). Queries and index definitions in `doc! { ... }` must reference snake_case field names.
+
+**Soft-delete is mandatory**: all entities include a `deleted_at: Option<DateTime<Utc>>` field and the corresponding `{Entity}Model` maps it to `Option<bson::DateTime>`. Every query in the repository filters with `doc! { "deleted_at": { "$exists": false } }`. The `delete` method does a `$set { deleted_at: now }` instead of removing the document. No hard-deletes — the pattern is consistent across all entities.
+
+## AppState & FromRef
+
+Services are injected into `AppState` in `src/infrastructure/driving/http_axum/server/state.rs`:
+
+```rust
+#[derive(Clone)]
+pub struct AppState {
+    pub health_checker: HealthChecker,
+    pub user_service: Arc<UserService>,
+    pub product_service: Arc<ProductService>,
+    pub order_service: Arc<OrderService>,
+}
+```
+
+A `FromRef` impl connects each service to Axum's `State` extractor. The `impl_from_ref!` macro generates these:
+
+```rust
+macro_rules! impl_from_ref {
+    ($state:ty, $field:ident, $service:ty) => {
+        impl FromRef<$state> for Arc<$service> {
+            fn from_ref(state: &$state) -> Self { state.$field.clone() }
+        }
+    };
+}
+
+impl_from_ref!(AppState, user_service, UserService);
+impl_from_ref!(AppState, product_service, ProductService);
+impl_from_ref!(AppState, order_service, OrderService);
+```
+
+Every new entity added must register its service in `AppState` and add the corresponding `impl_from_ref!` call.
 
 ## Health Check
 
