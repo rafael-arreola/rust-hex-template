@@ -1,4 +1,4 @@
-use crate::domain::error::DomainError;
+use crate::domain::error::{DomainError, ErrorSeverity};
 use crate::infrastructure::driving::http_axum::server::response::GenericApiResponse;
 use axum::{
     http::StatusCode,
@@ -6,7 +6,8 @@ use axum::{
 };
 
 /// Presentation-layer error. Clients rely on `code` (stable, machine-readable),
-/// users read `message`. Never expose internal details in `message`.
+/// users read `message` — always built from `DomainError::public_message()`,
+/// never from `Display` (that is the internal, logs-only view).
 #[derive(Debug)]
 pub struct ApiError {
     pub code: &'static str,
@@ -23,7 +24,8 @@ impl ApiError {
 impl From<DomainError> for ApiError {
     fn from(err: DomainError) -> Self {
         let code = err.code();
-        let message = err.to_string();
+        let internal = err.to_string();
+        let message = err.public_message();
 
         let status = match &err {
             DomainError::NotFound { .. } => StatusCode::NOT_FOUND,
@@ -34,11 +36,24 @@ impl From<DomainError> for ApiError {
             DomainError::BusinessRule(_) => StatusCode::UNPROCESSABLE_ENTITY,
             DomainError::ExternalService { .. }
             | DomainError::Database(_)
-            | DomainError::Internal(_) => {
-                tracing::error!(%code, %message, "Internal error mapped to 500");
-                StatusCode::INTERNAL_SERVER_ERROR
-            }
+            | DomainError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
         };
+
+        // Single logging choke point: every domain error crossing the HTTP
+        // boundary is logged exactly once, with full internal detail, at the
+        // severity the error itself declares. The active request span adds
+        // the trace_id, so the log line correlates with the response envelope.
+        match err.severity() {
+            ErrorSeverity::Error => {
+                tracing::error!(%code, %internal, status = status.as_u16(), "Request failed");
+            }
+            ErrorSeverity::Warn => {
+                tracing::warn!(%code, %internal, status = status.as_u16(), "Request rejected");
+            }
+            ErrorSeverity::Info => {
+                tracing::info!(%code, %internal, status = status.as_u16(), "Request rejected");
+            }
+        }
 
         ApiError { code, message, status }
     }

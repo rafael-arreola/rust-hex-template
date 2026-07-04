@@ -364,7 +364,12 @@ Inside `run()`, the server registers `/healthz`, `/readyz`, nests `/api/v1` rout
 - Do not use `unwrap()` or `expect()`.
 - Map every external error with `.map_err(...)`.
 - The `DomainError` enum carries all logic errors; build it via constructor methods.
-- Every variant exposes a stable, machine-readable code via `DomainError::code()`:
+- Every variant exposes a stable, machine-readable code via `DomainError::code()`.
+- Every error has two views, declared in one place (`src/domain/error.rs`):
+  - `Display`/`to_string()` is the **internal** message — full detail (raw driver/dependency text), logs only. It never crosses a driving boundary.
+  - `public_message()` is the **client-safe** message. Client-caused variants (`NotFound`, `AlreadyExists`, `Invalid`, `Required`, `Unauthorized`, `Forbidden`, `BusinessRule`) reuse their `Display` text; variants carrying infrastructure detail (`Database`, `Internal`, `ExternalService`) return a generic message that points the client to the `trace_id`.
+  - `severity()` returns the `ErrorSeverity` (`Info` | `Warn` | `Error`) a driving boundary must log the error with.
+- Errors are logged **exactly once**, at the driving boundary — for HTTP, inside `From<DomainError> for ApiError` (`server/error.rs`), with the full internal detail and the declared severity. Services and repositories never log-and-return the same error; they construct it and propagate with `?`. A new driving adapter (pubsub, gRPC) must implement its own single choke point reusing `severity()` and `public_message()`.
 
 ```rust
 #[derive(Error, Debug)]
@@ -453,12 +458,20 @@ impl DomainError {
     pub fn database(message: impl Into<String>) -> Self {
         Self::Database(message.into())
     }
+
+    /// Constructor: failure reported by an external dependency (always mapped,
+    /// never propagated raw).
+    pub fn external_service(service: impl Into<String>, message: impl Into<String>) -> Self {
+        Self::ExternalService { service: service.into(), message: message.into() }
+    }
 }
 
 pub type DomainResult<T> = std::result::Result<T, DomainError>;
 ```
 
-- `ApiError` in the HTTP layer is a struct — not an enum — with `code`, `message`, and `status`. The `From<DomainError>` mapping centralizes the code-to-status relationship in one place.
+See `src/domain/error.rs` for the full canonical implementation, including `public_message()`, `severity()`, and the `ErrorSeverity` enum.
+
+- `ApiError` in the HTTP layer is a struct — not an enum — with `code`, `message`, and `status`. The `From<DomainError>` mapping centralizes three things in one place: the code-to-status relationship, the single error log (severity-driven, internal detail), and the public/internal message split (`message` always comes from `public_message()`, never from `to_string()`).
 
 ## HTTP Response Envelope
 
