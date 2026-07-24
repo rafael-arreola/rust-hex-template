@@ -7,6 +7,7 @@
 //! `tracing-opentelemetry` version as the rest of the stack, so log↔trace
 //! correlation stays consistent with the spans exported to Cloud Trace.
 
+use opentelemetry::trace::TraceContextExt as _;
 use serde_json::{Map, Value, json};
 use std::fmt;
 use tracing::{Event, Level, Subscriber};
@@ -66,28 +67,25 @@ where
             );
         }
 
-        // Trace correlation: nearest span in scope with a built OTel context.
-        if let Some(scope) = context.event_scope() {
-            for span in scope {
-                let extensions = span.extensions();
-                let Some(otel_data) = extensions.get::<tracing_opentelemetry::OtelData>() else {
-                    continue;
-                };
-                if let Some(trace_id) = otel_data.trace_id() {
-                    entry.insert(
-                        "logging.googleapis.com/trace".to_string(),
-                        Value::String(format!("projects/{}/traces/{}", self.project_id, trace_id)),
-                    );
-                    entry.insert("logging.googleapis.com/trace_sampled".to_string(), true.into());
-                    if let Some(span_id) = otel_data.span_id() {
-                        entry.insert(
-                            "logging.googleapis.com/spanId".to_string(),
-                            Value::String(span_id.to_string()),
-                        );
-                    }
-                    break;
-                }
-            }
+        // Trace correlation: get attached OTel context from OpenTelemetry's thread-local.
+        let otel_context = opentelemetry::Context::current();
+        let otel_span = otel_context.span();
+        let span_context = otel_span.span_context();
+
+        if span_context.is_valid() {
+            entry.insert(
+                "logging.googleapis.com/trace".to_string(),
+                Value::String(format!(
+                    "projects/{}/traces/{}",
+                    self.project_id,
+                    span_context.trace_id()
+                )),
+            );
+            entry.insert("logging.googleapis.com/trace_sampled".to_string(), true.into());
+            entry.insert(
+                "logging.googleapis.com/spanId".to_string(),
+                Value::String(span_context.span_id().to_string()),
+            );
         }
 
         let line = serde_json::to_string(&Value::Object(entry)).map_err(|_| fmt::Error)?;
