@@ -6,7 +6,7 @@ use std::sync::OnceLock;
 #[derive(Debug)]
 pub struct Env {
     pub port: u16,
-    pub app_env: String,
+    pub service_env: String,
     pub service_name: String,
     pub project_id: String,
     pub mongo_url: String,
@@ -33,7 +33,8 @@ impl Env {
         Self {
             port: parse_port(),
             service_name: require_env("SERVICE_NAME"),
-            app_env: env::var("APP_ENV")
+            service_env: env::var("SERVICE_ENV")
+                .or_else(|_| env::var("APP_ENV"))
                 .or_else(|_| env::var("ENV"))
                 .unwrap_or_else(|_| "DEV".to_string()),
             project_id: env::var("PROJECT_ID").unwrap_or_default(),

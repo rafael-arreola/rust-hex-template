@@ -219,10 +219,10 @@ pub async fn create_order(
 
 | Archivo            | Qué contiene                                                          | Dependencias         |
 | ------------------ | --------------------------------------------------------------------- | -------------------- |
-| `config.rs`        | Carga de `.env` + struct `Env` + `OnceLock`                            | Ninguna del proyecto |
-| `http_client.rs`   | Cliente reqwest instrumentado (propaga `traceparent` en salidas HTTP)  | Ninguna del proyecto |
-| `tracer.rs`        | OpenTelemetry + tracing subscriber setup + `TracerGuard` (flush)       | Ninguna del proyecto |
-| `tracer/format.rs` | Formatter JSON de Cloud Logging (correlación log↔trace)                | Ninguna del proyecto |
+| `config.rs`        | Carga de `.env` + struct `Env` + `OnceLock`                           | Ninguna del proyecto |
+| `http_client.rs`   | Cliente reqwest instrumentado (propaga `traceparent` en salidas HTTP) | Ninguna del proyecto |
+| `tracer.rs`        | OpenTelemetry + tracing subscriber setup + `TracerGuard` (flush)      | Ninguna del proyecto |
+| `tracer/format.rs` | Formatter JSON de Cloud Logging (correlación log↔trace)               | Ninguna del proyecto |
 
 **Regla:** cero lógica de negocio. Se importan como dependencia en `application/` e `infrastructure/`. El dominio **no** las usa.
 
@@ -316,12 +316,12 @@ cargo clippy                         # Linting
 
 ### Opcionales (tienen valor por defecto)
 
-| Variable             | Default   | Descripción                                      |
-| -------------------- | --------- | ------------------------------------------------ |
-| `PORT`               | `3000`    | Puerto HTTP del servidor                         |
-| `APP_ENV` / `ENV`    | `DEV`     | Entorno: `DEV`, `STAGING`, `PRODUCTION`          |
-| `PROJECT_ID`         | _(vacío)_ | ID del proyecto GCP para Cloud Trace             |
-| `DEBUG_LEVEL`        | `info`    | Nivel de logs (`debug`, `info`, `warn`, `error`) |
-| `CORS_ORIGINS`       | `*`       | Orígenes CORS permitidos (separados por coma)    |
-| `REDIS_PREFIX`       | `service` | Prefijo para keys en Redis                       |
-| `DRAIN_TIMEOUT_SECS` | `10`      | Segundos de espera durante graceful shutdown     |
+| Variable              | Default   | Descripción                                      |
+| --------------------- | --------- | ------------------------------------------------ |
+| `PORT`                | `3000`    | Puerto HTTP del servidor                         |
+| `SERVICE_ENV` / `ENV` | `DEV`     | Entorno: `DEV`, `STAGING`, `PRODUCTION`          |
+| `PROJECT_ID`          | _(vacío)_ | ID del proyecto GCP para Cloud Trace             |
+| `DEBUG_LEVEL`         | `info`    | Nivel de logs (`debug`, `info`, `warn`, `error`) |
+| `CORS_ORIGINS`        | `*`       | Orígenes CORS permitidos (separados por coma)    |
+| `REDIS_PREFIX`        | `service` | Prefijo para keys en Redis                       |
+| `DRAIN_TIMEOUT_SECS`  | `10`      | Segundos de espera durante graceful shutdown     |

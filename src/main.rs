@@ -45,7 +45,7 @@ async fn main() {
 }
 
 async fn serve(env: &'static shared::config::Env) {
-    tracing::info!("Starting {} (env: {})", env.service_name, env.app_env);
+    tracing::info!("Starting {} (env: {})", env.service_name, env.service_env);
 
     // --- MongoDB ---
     let mongo = match MongoProvider::new(&env.service_name, &env.mongo_url, &env.mongo_db).await {

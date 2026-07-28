@@ -33,7 +33,7 @@ pub async fn init_tracing() -> anyhow::Result<TracerGuard> {
     let service_name = &config.service_name;
     let base_level = &config.debug_level;
     let project_id = &config.project_id;
-    let app_env = &config.app_env;
+    let service_env = &config.service_env;
     let version = env!("CARGO_PKG_VERSION");
 
     // W3C trace context propagation (traceparent/tracestate). Required so the
@@ -45,7 +45,7 @@ pub async fn init_tracing() -> anyhow::Result<TracerGuard> {
         base_level
     ));
 
-    let guard = match build_gcp_tracer(service_name, project_id, app_env, version).await {
+    let guard = match build_gcp_tracer(service_name, project_id, service_env, version).await {
         Ok((tracer, provider)) => {
             let cloud_logging_layer = tracing_subscriber::fmt::layer()
                 .event_format(format::CloudLoggingFormat::new(project_id.clone()))
@@ -91,7 +91,7 @@ pub async fn init_tracing() -> anyhow::Result<TracerGuard> {
 async fn build_gcp_tracer(
     service_name: &str,
     project_id: &str,
-    app_env: &str,
+    service_env: &str,
     version: &str,
 ) -> anyhow::Result<(opentelemetry_sdk::trace::Tracer, opentelemetry_sdk::trace::SdkTracerProvider)>
 {
@@ -103,7 +103,7 @@ async fn build_gcp_tracer(
                 .with_attributes(vec![
                     opentelemetry::KeyValue::new("service.name", service_name.to_string()),
                     opentelemetry::KeyValue::new("service.version", version.to_string()),
-                    opentelemetry::KeyValue::new("deployment.environment", app_env.to_string()),
+                    opentelemetry::KeyValue::new("deployment.environment", service_env.to_string()),
                     opentelemetry::KeyValue::new("project.id", project_id.to_string()),
                 ])
                 .build(),

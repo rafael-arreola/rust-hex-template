@@ -3,7 +3,7 @@
 This file is the **source of truth for invariants**: what must always be true of
 the code, and why. It is loaded into every agent session, so it stays dense.
 
-Step-by-step *procedures* do not live here — they live in `.agents/skills/`.
+Step-by-step _procedures_ do not live here — they live in `.agents/skills/`.
 This document tells you the rules; the skills tell you the moves.
 
 ## How to work in this repo
@@ -21,16 +21,16 @@ This document tells you the rules; the skills tell you the moves.
 
 ### Task router
 
-| You are asked to…                                       | Follow                                          | Read first                                                   |
-| ------------------------------------------------------- | ----------------------------------------------- | ------------------------------------------------------------ |
-| Add an entity / aggregate / CRUD resource               | `.agents/skills/add-entity`                     | §3 templates, §4.7 wiring                                     |
-| Add an endpoint / use case to an existing entity        | `.agents/skills/add-endpoint`                   | §3.3 service, §3.6 handler                                    |
-| Add pure business logic (no I/O)                        | `.agents/skills/add-domain-service`             | §3.4                                                          |
-| Integrate an external HTTP service or Redis cache       | `.agents/skills/add-driven-adapter`             | §4.6 timeouts, §4.1 errors                                    |
-| Write tests                                             | `.agents/skills/test-entity`                    | §6                                                            |
-| Verify the code respects the invariants                 | `.agents/skills/architecture-audit`             | §2                                                            |
-| Verify before committing                                | `.agents/skills/quality-gate`                   | §7                                                            |
-| Something not covered above                             | This file, then ask                             | —                                                             |
+| You are asked to…                                 | Follow                              | Read first                 |
+| ------------------------------------------------- | ----------------------------------- | -------------------------- |
+| Add an entity / aggregate / CRUD resource         | `.agents/skills/add-entity`         | §3 templates, §4.7 wiring  |
+| Add an endpoint / use case to an existing entity  | `.agents/skills/add-endpoint`       | §3.3 service, §3.6 handler |
+| Add pure business logic (no I/O)                  | `.agents/skills/add-domain-service` | §3.4                       |
+| Integrate an external HTTP service or Redis cache | `.agents/skills/add-driven-adapter` | §4.6 timeouts, §4.1 errors |
+| Write tests                                       | `.agents/skills/test-entity`        | §6                         |
+| Verify the code respects the invariants           | `.agents/skills/architecture-audit` | §2                         |
+| Verify before committing                          | `.agents/skills/quality-gate`       | §7                         |
+| Something not covered above                       | This file, then ask                 | —                          |
 
 > **Skill discovery.** Claude Code loads skills from `.claude/skills/`. That path
 > is a symlink to `.agents/skills` and is **not tracked by git**, so a fresh
@@ -75,16 +75,16 @@ Two prefixes, two meanings — do not mix them:
 Single Cargo package named `service`, **Rust edition 2024** (let-chains,
 `if let … && let …`, are in use — do not "fix" them into nested `if`s).
 
-| Area          | Crates (pinned in `Cargo.toml`)                                                                            |
-| ------------- | ---------------------------------------------------------------------------------------------------------- |
-| HTTP / async  | `axum 0.8`, `tokio 1` (full), `tower-http 0.7` (cors, compression-gzip, decompression-gzip)                  |
-| Databases     | `mongodb 3.8` (bson-3, rustls-tls, dns-resolver, opentelemetry), `bson 3`, `redis 1` (aio, tokio-comp)      |
+| Area          | Crates (pinned in `Cargo.toml`)                                                                                                                                                                 |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| HTTP / async  | `axum 0.8`, `tokio 1` (full), `tower-http 0.7` (cors, compression-gzip, decompression-gzip)                                                                                                     |
+| Databases     | `mongodb 3.8` (bson-3, rustls-tls, dns-resolver, opentelemetry), `bson 3`, `redis 1` (aio, tokio-comp)                                                                                          |
 | Observability | `opentelemetry` / `opentelemetry_sdk` / `opentelemetry-semantic-conventions` **0.32**, `tracing-opentelemetry 0.33`, `opentelemetry-gcloud-trace 0.24`, `tracing 0.1`, `tracing-subscriber 0.3` |
-| Outbound HTTP | `reqwest 0.13` (rustls, http2, json), `reqwest-middleware 0.5`, `reqwest-tracing 0.7` (`opentelemetry_0_32`) |
-| Serialization | `serde 1`, `serde_json 1`, `rmp-serde 1.3` (MessagePack), `erased-serde 0.4` (deferred encoding)             |
-| Validation    | `validator 0.20` (derive)                                                                                    |
-| Errors / misc | `thiserror 2`, `anyhow 1` (**tracer bootstrap only**), `uuid 1` (v7), `chrono 0.4`, `dotenvy`, `futures`, `rustls 0.23` |
-| Dev only      | `tower 0.5` (util) — drives the router from `#[cfg(test)]` via `ServiceExt::oneshot`                         |
+| Outbound HTTP | `reqwest 0.13` (rustls, http2, json), `reqwest-middleware 0.5`, `reqwest-tracing 0.7` (`opentelemetry_0_32`)                                                                                    |
+| Serialization | `serde 1`, `serde_json 1`, `rmp-serde 1.3` (MessagePack), `erased-serde 0.4` (deferred encoding)                                                                                                |
+| Validation    | `validator 0.20` (derive)                                                                                                                                                                       |
+| Errors / misc | `thiserror 2`, `anyhow 1` (**tracer bootstrap only**), `uuid 1` (v7), `chrono 0.4`, `dotenvy`, `futures`, `rustls 0.23`                                                                         |
+| Dev only      | `tower 0.5` (util) — drives the router from `#[cfg(test)]` via `ServiceExt::oneshot`                                                                                                            |
 
 `anyhow` is confined to `shared/tracer.rs`, where there is no domain yet.
 Everywhere else the error type is `DomainError` (§4.1).
@@ -204,13 +204,13 @@ executable greps.
 driving/http_axum ──> application ──> domain <── driven/mongo, driven/redis
 ```
 
-| Module              | May import                                                   | Must never import                               |
-| ------------------- | ------------------------------------------------------------ | ----------------------------------------------- |
-| `domain`            | Nothing outside itself (plus `serde`/`chrono`/`thiserror`)   | Every other local module                        |
-| `application`       | `domain`, `shared`                                           | `infrastructure::*` (driven **and** driving)    |
-| `infrastructure::driven` | `domain`, `shared`                                      | `application`, `infrastructure::driving`        |
-| `infrastructure::driving` | `domain`, `application`, framework/observability deps | `infrastructure::driven`, `shared::config`      |
-| `shared`            | External crates only                                         | `domain`, `application`, `infrastructure`       |
+| Module                    | May import                                                 | Must never import                            |
+| ------------------------- | ---------------------------------------------------------- | -------------------------------------------- |
+| `domain`                  | Nothing outside itself (plus `serde`/`chrono`/`thiserror`) | Every other local module                     |
+| `application`             | `domain`, `shared`                                         | `infrastructure::*` (driven **and** driving) |
+| `infrastructure::driven`  | `domain`, `shared`                                         | `application`, `infrastructure::driving`     |
+| `infrastructure::driving` | `domain`, `application`, framework/observability deps      | `infrastructure::driven`, `shared::config`   |
+| `shared`                  | External crates only                                       | `domain`, `application`, `infrastructure`    |
 
 The driving layer imports the **concrete** `{Entity}Service`, not a trait — the
 inversion happens at the port, between application and driven.
@@ -231,40 +231,40 @@ domain entities, domain enums, `DomainId` typed IDs, `Pagination`,
 
 ## 2.3 Naming
 
-| Scope                  | Rule                                  | Example ✅                          | Avoid ❌                    |
-| ---------------------- | ------------------------------------- | ----------------------------------- | --------------------------- |
-| Files & folders        | singular                              | `user.rs`, `product/`               | `users.rs`, `products/`     |
-| Structs                | PascalCase, singular                  | `User`, `Order`                     | `Users`, `Orders`           |
-| Port traits            | `{Entity}RepositoryPort`              | `UserRepositoryPort`                | `UserRepository` (as trait) |
-| Infrastructure structs | `{Entity}Repository` — no tech prefix | `UserRepository` in `driven/mongo`  | `MongoUserRepository`       |
-| DB collections         | plural, snake_case                    | `users`, `order_items`              | `user`, `orderItems`        |
-| BSON document fields   | snake_case, always                    | `total_price`, `created_at`         | `totalPrice`, `createdAt`   |
-| API routes             | plural                                | `/api/v1/users`, `/api/v1/orders`   | `/api/v1/user`              |
-| DTOs                   | `*Input` / `*Output` suffix           | `CreateUserInput`, `UserOutput`     | `UserDto`, `UserRequest`    |
-| Mongo indexes          | explicit `name`, `*_idx` suffix       | `email_unique_idx`                  | driver-generated names      |
-| Variables & fields     | full words, no abbreviations          | `user_email`, `page_number`         | `usr`, `idx`, `tmp`         |
+| Scope                  | Rule                                  | Example ✅                         | Avoid ❌                    |
+| ---------------------- | ------------------------------------- | ---------------------------------- | --------------------------- |
+| Files & folders        | singular                              | `user.rs`, `product/`              | `users.rs`, `products/`     |
+| Structs                | PascalCase, singular                  | `User`, `Order`                    | `Users`, `Orders`           |
+| Port traits            | `{Entity}RepositoryPort`              | `UserRepositoryPort`               | `UserRepository` (as trait) |
+| Infrastructure structs | `{Entity}Repository` — no tech prefix | `UserRepository` in `driven/mongo` | `MongoUserRepository`       |
+| DB collections         | plural, snake_case                    | `users`, `order_items`             | `user`, `orderItems`        |
+| BSON document fields   | snake_case, always                    | `total_price`, `created_at`        | `totalPrice`, `createdAt`   |
+| API routes             | plural                                | `/api/v1/users`, `/api/v1/orders`  | `/api/v1/user`              |
+| DTOs                   | `*Input` / `*Output` suffix           | `CreateUserInput`, `UserOutput`    | `UserDto`, `UserRequest`    |
+| Mongo indexes          | explicit `name`, `*_idx` suffix       | `email_unique_idx`                 | driver-generated names      |
+| Variables & fields     | full words, no abbreviations          | `user_email`, `page_number`        | `usr`, `idx`, `tmp`         |
 
 ## 2.4 Anti-patterns — reject on sight
 
-| Anti-pattern                                              | Why it is banned                                                  | Do instead                                        |
-| --------------------------------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------- |
-| `unwrap()` / `expect()` / `dbg!` in production code       | Denied by `[lints.clippy]` — the build fails                       | `?`, `ok_or_else(DomainError::…)`, `map_err`      |
-| Raw driver error crossing an adapter boundary             | Leaks infrastructure into the domain, and connection strings into logs | `.map_err(\|e\| DomainError::database(e.to_string()))` |
-| `delete_one` / `$unset` on an entity collection           | Soft-delete is the contract (§4.3)                                 | `$set { deleted_at: now }`                        |
-| A query without `"deleted_at": { "$exists": false }`      | Returns tombstoned documents                                       | Add the filter to *every* read                    |
-| Read-then-check before a mutating write                   | Two concurrent callers both pass the check (§4.4)                  | One conditional atomic update                     |
-| Logging an error *and* returning it                       | Double-logs; the boundary logs once (§4.1)                         | Construct and propagate with `?`                  |
-| `tower_http::TimeoutLayer`                                | Answers 408 with an empty body, breaking the envelope              | `middleware::request_timeout` (§4.6)              |
-| `TraceLayer`                                              | Creates a second, disconnected root span                           | `middleware::trace_context` (§4.5)                |
-| Bare `reqwest::Client`                                    | Does not propagate `traceparent`, has no timeout                   | `shared::http_client::instrumented_client()`      |
-| `Span::current().record("x", …)` on an undeclared field   | `tracing` drops it silently                                        | Declare the field in the span macro               |
-| `#[tracing::instrument]` with no `fields(...)`            | No correlation key in the log line                                 | Always declare at least one (`%id`, `%email`)     |
-| Assembling response JSON by hand                          | Diverges from the envelope                                         | `GenericApiResponse::{success,paginated,error}`   |
-| `TryFrom` for entity↔model conversion                     | Inconsistent with every other entity                               | `From` both ways (§3.5)                           |
-| A new `foo/mod.rs`                                        | The router convention is `foo.rs`                                  | `foo.rs` next to `foo/`                           |
-| Axum path `:id`                                           | Axum 0.8 syntax is `{id}`; `:id` panics at startup                 | `.route("/{id}", …)`                              |
-| A `create_indexes()` call in `main.rs`                    | A wiring step the compiler cannot enforce; forget it and queries silently do collection scans | `Repository::new(&db).await` owns it (§3.7) |
-| `repo.clone() as Arc<dyn UserRepositoryPort>`             | Rust coerces `Arc<Concrete>` → `Arc<dyn Trait>` on its own         | Pass `repo.clone()` directly (§3.10)              |
+| Anti-pattern                                            | Why it is banned                                                                              | Do instead                                             |
+| ------------------------------------------------------- | --------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| `unwrap()` / `expect()` / `dbg!` in production code     | Denied by `[lints.clippy]` — the build fails                                                  | `?`, `ok_or_else(DomainError::…)`, `map_err`           |
+| Raw driver error crossing an adapter boundary           | Leaks infrastructure into the domain, and connection strings into logs                        | `.map_err(\|e\| DomainError::database(e.to_string()))` |
+| `delete_one` / `$unset` on an entity collection         | Soft-delete is the contract (§4.3)                                                            | `$set { deleted_at: now }`                             |
+| A query without `"deleted_at": { "$exists": false }`    | Returns tombstoned documents                                                                  | Add the filter to _every_ read                         |
+| Read-then-check before a mutating write                 | Two concurrent callers both pass the check (§4.4)                                             | One conditional atomic update                          |
+| Logging an error _and_ returning it                     | Double-logs; the boundary logs once (§4.1)                                                    | Construct and propagate with `?`                       |
+| `tower_http::TimeoutLayer`                              | Answers 408 with an empty body, breaking the envelope                                         | `middleware::request_timeout` (§4.6)                   |
+| `TraceLayer`                                            | Creates a second, disconnected root span                                                      | `middleware::trace_context` (§4.5)                     |
+| Bare `reqwest::Client`                                  | Does not propagate `traceparent`, has no timeout                                              | `shared::http_client::instrumented_client()`           |
+| `Span::current().record("x", …)` on an undeclared field | `tracing` drops it silently                                                                   | Declare the field in the span macro                    |
+| `#[tracing::instrument]` with no `fields(...)`          | No correlation key in the log line                                                            | Always declare at least one (`%id`, `%email`)          |
+| Assembling response JSON by hand                        | Diverges from the envelope                                                                    | `GenericApiResponse::{success,paginated,error}`        |
+| `TryFrom` for entity↔model conversion                   | Inconsistent with every other entity                                                          | `From` both ways (§3.5)                                |
+| A new `foo/mod.rs`                                      | The router convention is `foo.rs`                                                             | `foo.rs` next to `foo/`                                |
+| Axum path `:id`                                         | Axum 0.8 syntax is `{id}`; `:id` panics at startup                                            | `.route("/{id}", …)`                                   |
+| A `create_indexes()` call in `main.rs`                  | A wiring step the compiler cannot enforce; forget it and queries silently do collection scans | `Repository::new(&db).await` owns it (§3.7)            |
+| `repo.clone() as Arc<dyn UserRepositoryPort>`           | Rust coerces `Arc<Concrete>` → `Arc<dyn Trait>` on its own                                    | Pass `repo.clone()` directly (§3.10)                   |
 
 ---
 
@@ -321,13 +321,13 @@ pub type UserId       = DomainId<UserMarker>;        // String-backed (default)
 pub type LegacyUserId = DomainId<UserMarker, i64>;   // any V: DomainIdValue
 ```
 
-| Need                             | Use                                          |
-| -------------------------------- | -------------------------------------------- |
-| Build from a known value         | `UserId::new("usr_abc")`                     |
-| Build from an untrusted string   | `UserId::parse(&s)? ` → `Result<_, String>`  |
-| Read the inner value             | `id.inner()` → `&V`                          |
-| Consume it (DTO conversion)      | `id.into_inner()` → `V`                      |
-| Pass to a repository (String IDs)| `&**id` → `&str` (via `Deref`)               |
+| Need                              | Use                                         |
+| --------------------------------- | ------------------------------------------- |
+| Build from a known value          | `UserId::new("usr_abc")`                    |
+| Build from an untrusted string    | `UserId::parse(&s)? ` → `Result<_, String>` |
+| Read the inner value              | `id.inner()` → `&V`                         |
+| Consume it (DTO conversion)       | `id.into_inner()` → `V`                     |
+| Pass to a repository (String IDs) | `&**id` → `&str` (via `Deref`)              |
 
 `DomainIdValue` is implemented for `String`, `i64`, `u64`, `i32`, `u32`.
 Implement it for your own type if you need a different inner value.
@@ -365,7 +365,7 @@ pub trait UserRepositoryPort: Send + Sync {
   thread-safe.
 - `count()` is not optional — every paginated list handler needs it.
 - Return `DomainResult<bool>` from `update`/`delete` to mean "did it match?".
-  Mapping `false` to `NotFound` is the *service's* decision, not the adapter's.
+  Mapping `false` to `NotFound` is the _service's_ decision, not the adapter's.
 - A conditional write returns `DomainResult<bool>` too (`try_reserve_stock`) —
   see §4.4.
 
@@ -929,15 +929,15 @@ ServerLauncher::new(state)
     .await;
 ```
 
-| Builder method                 | Effect                                                        |
-| ------------------------------ | ------------------------------------------------------------- |
-| `new(state)`                   | Takes `AppState` with every service injected                  |
-| `with_http(port)`              | **Omit it and no server starts** — `run()` returns immediately |
-| `with_cors_origins(origins)`   | Comma-separated list, or `"*"` for permissive                 |
-| `with_drain_timeout(secs)`     | Hard cap on in-flight connections during shutdown (§4.7)      |
-| `with_request_timeout(secs)`   | Per-request budget → 504 with the standard envelope (§4.6)    |
-| `with_msgpack(enabled)`        | Response-side `Accept` negotiation, on by default (§4.8)      |
-| `run()`                        | Binds and blocks until the shutdown signal                    |
+| Builder method               | Effect                                                         |
+| ---------------------------- | -------------------------------------------------------------- |
+| `new(state)`                 | Takes `AppState` with every service injected                   |
+| `with_http(port)`            | **Omit it and no server starts** — `run()` returns immediately |
+| `with_cors_origins(origins)` | Comma-separated list, or `"*"` for permissive                  |
+| `with_drain_timeout(secs)`   | Hard cap on in-flight connections during shutdown (§4.7)       |
+| `with_request_timeout(secs)` | Per-request budget → 504 with the standard envelope (§4.6)     |
+| `with_msgpack(enabled)`      | Response-side `Accept` negotiation, on by default (§4.8)       |
+| `run()`                      | Binds and blocks until the shutdown signal                     |
 
 ### The 7 registration points for a new entity
 
@@ -987,19 +987,19 @@ Each error has two views, both declared in `src/domain/error.rs`:
 - `severity()` — the `ErrorSeverity` (`Info` | `Warn` | `Error`) the boundary
   must log with.
 
-| Variant            | `code()`                        | HTTP  | `severity()` | Public message              |
-| ------------------ | ------------------------------- | ----- | ------------ | --------------------------- |
-| `NotFound`         | `NOT_FOUND`                     | 404   | Info         | same as `Display`           |
-| `AlreadyExists`    | `ALREADY_EXISTS`                | 409   | Info         | same as `Display`           |
-| `Invalid`          | `INVALID_INPUT`                 | 400   | Info         | same as `Display`           |
-| `Required`         | `REQUIRED_FIELD`                | 400   | Info         | same as `Display`           |
-| `Unauthorized`     | `UNAUTHORIZED`                  | 401   | Warn         | same as `Display`           |
-| `Forbidden`        | `FORBIDDEN`                     | 403   | Warn         | same as `Display`           |
-| `BusinessRule`     | `BUSINESS_RULE_VIOLATION`       | 422   | Warn         | same as `Display`           |
-| `Timeout`          | `TIMEOUT`                       | 504   | Error        | generic, "please retry"     |
-| `ExternalService`  | `EXTERNAL_SERVICE_UNAVAILABLE`  | 500   | Error        | generic, names the service  |
-| `Database`         | `INTERNAL_ERROR`                | 500   | Error        | generic, points at trace_id |
-| `Internal`         | `INTERNAL_ERROR`                | 500   | Error        | generic, points at trace_id |
+| Variant           | `code()`                       | HTTP | `severity()` | Public message              |
+| ----------------- | ------------------------------ | ---- | ------------ | --------------------------- |
+| `NotFound`        | `NOT_FOUND`                    | 404  | Info         | same as `Display`           |
+| `AlreadyExists`   | `ALREADY_EXISTS`               | 409  | Info         | same as `Display`           |
+| `Invalid`         | `INVALID_INPUT`                | 400  | Info         | same as `Display`           |
+| `Required`        | `REQUIRED_FIELD`               | 400  | Info         | same as `Display`           |
+| `Unauthorized`    | `UNAUTHORIZED`                 | 401  | Warn         | same as `Display`           |
+| `Forbidden`       | `FORBIDDEN`                    | 403  | Warn         | same as `Display`           |
+| `BusinessRule`    | `BUSINESS_RULE_VIOLATION`      | 422  | Warn         | same as `Display`           |
+| `Timeout`         | `TIMEOUT`                      | 504  | Error        | generic, "please retry"     |
+| `ExternalService` | `EXTERNAL_SERVICE_UNAVAILABLE` | 500  | Error        | generic, names the service  |
+| `Database`        | `INTERNAL_ERROR`               | 500  | Error        | generic, points at trace_id |
+| `Internal`        | `INTERNAL_ERROR`               | 500  | Error        | generic, points at trace_id |
 
 Constructors: `not_found(entity, id)`, `duplicate(entity, field, value)`,
 `invalid_param(param, entity, value)`, `business_rule(msg)`, `timeout(op)`,
@@ -1068,7 +1068,7 @@ Rules that follow:
 - A conditional write returns `bool` from the port. The **service** turns
   `false` into the right `DomainError` — and may re-read to distinguish "gone"
   from "out of stock", so the client gets the correct code.
-- A read-then-check *before* the atomic write is allowed only as a friendly
+- A read-then-check _before_ the atomic write is allowed only as a friendly
   fast-fail that shows the client the real number. It is never the guard. Say so
   in a comment, as the demo does.
 - **After a successful reservation, every later failure must compensate.** The
@@ -1146,19 +1146,19 @@ connection and then goes silent would otherwise pin a task forever.
 `DomainError::timeout(...)` → **504** with the standard envelope and
 `cause: "TIMEOUT"`. It is deliberately **not** `tower_http::TimeoutLayer`, which
 answers a bare 408 with an empty body and breaks the envelope. It is layered
-*inside* `trace_context`, so a timed-out request is still recorded on its span
+_inside_ `trace_context`, so a timed-out request is still recorded on its span
 and still echoes its `X-Request-Id`. The internal detail (method, path, budget)
 goes to the log; the client gets the generic message.
 
 **Outbound** — `shared::http_client`. `reqwest` applies **no timeout by
 default**, so every client this template hands out sets one:
 
-| Constant / fn                      | Value / purpose                                       |
-| ---------------------------------- | ------------------------------------------------------ |
-| `DEFAULT_TIMEOUT`                  | 10 s — whole request (connect + send + response)        |
-| `DEFAULT_CONNECT_TIMEOUT`          | 3 s — TCP/TLS handshake alone                           |
-| `instrumented_client()`            | The default client. Use this.                           |
-| `client_with_timeout(duration)`    | Explicit budget for a legitimately slower/stricter dep  |
+| Constant / fn                   | Value / purpose                                        |
+| ------------------------------- | ------------------------------------------------------ |
+| `DEFAULT_TIMEOUT`               | 10 s — whole request (connect + send + response)       |
+| `DEFAULT_CONNECT_TIMEOUT`       | 3 s — TCP/TLS handshake alone                          |
+| `instrumented_client()`         | The default client. Use this.                          |
+| `client_with_timeout(duration)` | Explicit budget for a legitimately slower/stricter dep |
 
 Both return a `ClientWithMiddleware` carrying `TracingMiddleware`, so outbound
 calls propagate `traceparent`. Build them in `main.rs` and inject them into
@@ -1173,7 +1173,7 @@ Two endpoints, outside `/api/v1`:
 
 - `GET /healthz` — liveness. Returns 200 whenever the process is alive,
   **including while draining**. A failing liveness probe tells the orchestrator
-  to *kill* the process, which is the opposite of a graceful drain.
+  to _kill_ the process, which is the opposite of a graceful drain.
 - `GET /readyz` — readiness. 200 when dependencies respond to ping, 503
   otherwise. The readiness checker is a `HealthChecker` closure injected from
   `main.rs`.
@@ -1270,19 +1270,19 @@ returns `&'static Env`. **A missing required variable calls `process::exit(1)`
 with a message on stderr** — the service refuses to start half-configured.
 `.env.example` is the contract; keep it in sync when you add a variable.
 
-| Variable               | Required | Default              | Purpose                                        |
-| ---------------------- | -------- | -------------------- | ---------------------------------------------- |
-| `SERVICE_NAME`         | **yes**  | —                    | Mongo app name, OTel `service.name`             |
-| `MONGO_URL`            | **yes**  | —                    | Connection string                               |
-| `MONGO_DB`             | **yes**  | —                    | Database name                                   |
-| `PORT`                 | no       | `3000`               | HTTP port (must parse as `u16`, else exit)      |
-| `APP_ENV` (or `ENV`)   | no       | `DEV`                | `LCL` / `SBX` / `PRD`; OTel `deployment.environment` |
-| `PROJECT_ID`           | no       | empty                | GCP project for trace/log correlation           |
-| `DEBUG_LEVEL`          | no       | `info`               | Base level of the `EnvFilter`                   |
-| `CORS_ORIGINS`         | no       | `*`                  | Comma-separated list, or `*`                    |
-| `DRAIN_TIMEOUT_SECS`   | no       | `10`                 | Hard cap on in-flight connections at shutdown   |
-| `REQUEST_TIMEOUT_SECS` | no       | `30`                 | Per-request budget → 504                        |
-| `ENABLE_MSGPACK`       | no       | `true`               | Response-side `Accept` negotiation              |
+| Variable                 | Required | Default | Purpose                                              |
+| ------------------------ | -------- | ------- | ---------------------------------------------------- |
+| `SERVICE_NAME`           | **yes**  | —       | Mongo app name, OTel `service.name`                  |
+| `MONGO_URL`              | **yes**  | —       | Connection string                                    |
+| `MONGO_DB`               | **yes**  | —       | Database name                                        |
+| `PORT`                   | no       | `3000`  | HTTP port (must parse as `u16`, else exit)           |
+| `SERVICE_ENV` (or `ENV`) | no       | `DEV`   | `LCL` / `SBX` / `PRD`; OTel `deployment.environment` |
+| `PROJECT_ID`             | no       | empty   | GCP project for trace/log correlation                |
+| `DEBUG_LEVEL`            | no       | `info`  | Base level of the `EnvFilter`                        |
+| `CORS_ORIGINS`           | no       | `*`     | Comma-separated list, or `*`                         |
+| `DRAIN_TIMEOUT_SECS`     | no       | `10`    | Hard cap on in-flight connections at shutdown        |
+| `REQUEST_TIMEOUT_SECS`   | no       | `30`    | Per-request budget → 504                             |
+| `ENABLE_MSGPACK`         | no       | `true`  | Response-side `Accept` negotiation                   |
 
 Booleans accept `1/true/yes` and `0/false/no` (any case); anything else falls
 back to the default rather than failing.
