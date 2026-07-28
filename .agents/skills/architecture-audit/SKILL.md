@@ -138,7 +138,24 @@ grep -n "$ENTITY" src/domain/entities.rs src/domain/port.rs src/application.rs \
   src/infrastructure/driving/http_axum/server/state.rs src/main.rs
 ```
 
-Esperado: aparece en los 7. Además `main.rs` debe llamar `create_indexes()` con fail-fast, y `state.rs` debe tener el `impl_from_ref!`.
+Esperado: aparece en los 7, y `state.rs` tiene su `impl_from_ref!`.
+
+Dos checks que atrapan el wiring viejo:
+
+```bash
+# El constructor del repositorio crea sus propios índices → esperado: vacío.
+# Un create_indexes() en main.rs es un paso que el compilador no puede exigir.
+# (El `grep -v` descarta comentarios, que sí mencionan el patrón a propósito.)
+grep -n "\.create_indexes(" src/main.rs | grep -v ":[0-9]*: *//"
+
+# Coerción implícita: nada de casts explícitos a Arc<dyn ...> → esperado: vacío.
+grep -rn "as Arc<dyn" src/ --include="*.rs" | grep -v ":[0-9]*: *//"
+
+# Y al revés: todo repositorio expone `pub async fn new(...) -> DomainResult<Self>`
+# con create_indexes PRIVADO → esperado: dos líneas por repositorio (`pub async
+# fn new` + `async fn create_indexes`), y ninguna `pub async fn create_indexes`.
+grep -rn "pub async fn new\|async fn create_indexes" src/infrastructure/driven/mongo/*/repository.rs
+```
 
 ## Formato del reporte
 

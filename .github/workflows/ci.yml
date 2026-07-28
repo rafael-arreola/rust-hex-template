@@ -1,0 +1,70 @@
+# Ejecuta el mismo gate que `.agents/skills/quality-gate`, pero como puerta
+# obligatoria en vez de convención: lo que AGENTS.md exige, aquí se verifica.
+#
+# El orden es el del skill — de más barato a más caro — para que un fallo de
+# formato no gaste minutos de compilación.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  # Sin `RUSTFLAGS: -D warnings` a proposito: se aplicaria tambien a la
+  # compilacion de dependencias y un aviso ajeno pondria el CI en rojo.
+  # El `-D warnings` que importa se pasa explicitamente al paso de clippy.
+
+jobs:
+  quality-gate:
+    name: Formato, lints y tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Instalar toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cachear dependencias
+        uses: Swatinem/rust-cache@v2
+
+      # 1. Formato — rustfmt.toml manda.
+      - name: cargo fmt
+        run: cargo fmt --all -- --check
+
+      # 2. Lints — incluye los deny de unwrap_used/expect_used/dbg_macro
+      #    declarados en [lints.clippy]. `--all-targets` cubre también tests.
+      - name: cargo clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      # 3. Orden de dependencias (AGENTS.md: alfabético y agrupado).
+      - name: Instalar cargo-sort
+        run: cargo install cargo-sort --locked
+
+      - name: cargo sort
+        run: cargo sort --grouped --check
+
+      # 4. Tests.
+      - name: cargo test
+        run: cargo test --all-targets
+
+  dependencias:
+    name: Auditoría de dependencias
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Avisos de seguridad de RustSec sobre el árbol real de Cargo.lock.
+      # Se corre en un job aparte para que un advisory nuevo no bloquee el
+      # gate de calidad: son señales de distinta naturaleza.
+      - name: cargo audit
+        uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}

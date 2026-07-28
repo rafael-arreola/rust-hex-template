@@ -1,4 +1,4 @@
-pub mod order;
-pub mod product;
+pub mod demo_order;
+pub mod demo_product;
+pub mod demo_user;
 pub mod provider;
-pub mod user;

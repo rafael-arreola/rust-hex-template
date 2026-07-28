@@ -1,3 +1,6 @@
+# La suite de tests corre dentro de build/Dockerfile (etapa builder), asi que
+# este paso falla y aborta el deploy si algun test esta en rojo. El gate
+# completo de calidad (fmt, clippy, sort, audit) vive en .github/workflows/ci.yml.
 steps:
   - id: "Building container image"
     name: "gcr.io/cloud-builders/docker"
@@ -26,8 +29,11 @@ steps:
       - "--platform=managed"
       - "--allow-unauthenticated"
       - "--cpu-boost"
-      - "--set-env-vars=SERVICE_NAME=$_SERVICE_NAME"
-      - "--set-env-vars=PROJECT_ID=$PROJECT_ID"
+      # Una sola bandera con todas las variables: `--set-env-vars` REEMPLAZA el
+      # conjunto completo en cada aparicion, asi que repetirla descarta las
+      # anteriores. Separado en dos lineas, SERVICE_NAME nunca llegaba al
+      # contenedor y el servicio abortaba al arrancar (require_env).
+      - "--set-env-vars=SERVICE_NAME=$_SERVICE_NAME,PROJECT_ID=$PROJECT_ID,APP_ENV=$_APP_ENV"
       # Configure sus secretos y envs adicionales manualmente o vía sustituciones
 
 substitutions:

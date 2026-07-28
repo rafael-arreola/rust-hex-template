@@ -1,9 +1,9 @@
-use crate::domain::entities::product::{Product, ProductId};
+use crate::domain::entities::demo_product::{DemoProduct, DemoProductId};
 use serde::{Deserialize, Serialize};
 use validator::Validate;
 
 #[derive(Debug, Deserialize, Validate)]
-pub struct CreateProductInput {
+pub struct CreateDemoProductInput {
     #[validate(length(min = 1, message = "Name cannot be empty"))]
     pub name: String,
 
@@ -24,7 +24,7 @@ pub struct CreateProductInput {
 }
 
 #[derive(Debug, Deserialize, Validate)]
-pub struct UpdateProductMetadataInput {
+pub struct UpdateDemoProductMetadataInput {
     pub description: Option<String>,
 
     #[validate(length(min = 1, message = "Category is required"))]
@@ -37,7 +37,7 @@ pub struct UpdateProductMetadataInput {
 }
 
 #[derive(Serialize)]
-pub struct ProductOutput {
+pub struct DemoProductOutput {
     pub id: String,
     pub name: String,
     pub price: f64,
@@ -51,10 +51,10 @@ pub struct ProductOutput {
     pub updated_at: String,
 }
 
-impl From<Product> for ProductOutput {
-    fn from(product: Product) -> Self {
+impl From<DemoProduct> for DemoProductOutput {
+    fn from(product: DemoProduct) -> Self {
         Self {
-            id: product.id.map(|id: ProductId| id.into_inner()).unwrap_or_default(),
+            id: product.id.map(|id: DemoProductId| id.into_inner()).unwrap_or_default(),
             name: product.name,
             price: product.price,
             stock: product.stock,

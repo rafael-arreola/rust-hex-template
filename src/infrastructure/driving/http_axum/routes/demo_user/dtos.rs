@@ -1,9 +1,9 @@
-use crate::domain::entities::user::{User, UserId};
+use crate::domain::entities::demo_user::{DemoUser, DemoUserId};
 use serde::{Deserialize, Serialize};
 use validator::Validate;
 
 #[derive(Deserialize, Validate)]
-pub struct CreateUserInput {
+pub struct CreateDemoUserInput {
     #[validate(length(min = 1, message = "Name cannot be empty"))]
     pub name: String,
     #[validate(email(message = "Invalid email format"))]
@@ -11,7 +11,7 @@ pub struct CreateUserInput {
 }
 
 #[derive(Serialize)]
-pub struct UserOutput {
+pub struct DemoUserOutput {
     pub id: String,
     pub name: String,
     pub email: String,
@@ -19,10 +19,10 @@ pub struct UserOutput {
     pub updated_at: String,
 }
 
-impl From<User> for UserOutput {
-    fn from(user: User) -> Self {
+impl From<DemoUser> for DemoUserOutput {
+    fn from(user: DemoUser) -> Self {
         Self {
-            id: user.id.map(|id: UserId| id.into_inner()).unwrap_or_default(),
+            id: user.id.map(|id: DemoUserId| id.into_inner()).unwrap_or_default(),
             name: user.name,
             email: user.email,
             created_at: user.created_at.to_rfc3339(),

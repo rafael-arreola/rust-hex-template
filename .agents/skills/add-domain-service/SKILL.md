@@ -11,10 +11,10 @@ Un domain service es cálculo puro sobre entidades y primitivos. Si necesita un 
 
 Archivo: `src/domain/services/{service}.rs` — registrar `pub mod {service};` en `src/domain/services/mod.rs`.
 
-Ejemplo canónico en el repo: `src/domain/services/pricing.rs`.
+Ejemplo canónico en el repo: `src/domain/services/demo_pricing.rs`.
 
 ```rust
-use crate::domain::entities::order::Order;
+use crate::domain::entities::demo_order::DemoOrder;
 
 /// Pure business logic — zero I/O, zero constructor dependencies.
 pub struct DiscountPolicy;
@@ -25,7 +25,7 @@ impl DiscountPolicy {
     }
 
     /// Regla: pedidos > 1000 obtienen 10% de descuento.
-    pub fn apply(&self, order: &Order) -> f64 {
+    pub fn apply(&self, order: &DemoOrder) -> f64 {
         if order.total_price > 1000.0 { order.total_price * 0.90 } else { order.total_price }
     }
 }
@@ -50,14 +50,14 @@ En el `{Entity}Service` de application, el domain service es un campo construido
 
 ```rust
 #[derive(Clone)]
-pub struct OrderService {
-    order_repo: Arc<dyn OrderRepositoryPort>,
+pub struct DemoOrderService {
+    demo_order_repo: Arc<dyn DemoOrderRepositoryPort>,
     discount: DiscountPolicy,
 }
 
-impl OrderService {
-    pub fn new(order_repo: Arc<dyn OrderRepositoryPort>) -> Self {
-        Self { order_repo, discount: DiscountPolicy::new() }
+impl DemoOrderService {
+    pub fn new(demo_order_repo: Arc<dyn DemoOrderRepositoryPort>) -> Self {
+        Self { demo_order_repo, discount: DiscountPolicy::new() }
     }
 }
 ```
@@ -75,7 +75,7 @@ mod tests {
 
     #[test]
     fn applies_discount_over_threshold() {
-        let order = Order { total_price: 2000.0, /* ... */ };
+        let order = DemoOrder { total_price: 2000.0, /* ... */ };
         assert_eq!(DiscountPolicy::new().apply(&order), 1800.0);
     }
 }

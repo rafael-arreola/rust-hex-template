@@ -15,11 +15,11 @@ Orden de trabajo: port → repository → service → DTOs → handler → ruta.
 
 ## Paso a paso (ejemplo real: `PUT /api/v1/users/{id}`)
 
-Este ejemplo es literal: `UserService::update_user` ya existe en `src/application/user.rs` pero **no tiene ruta registrada** — es el endpoint pendiente perfecto para calibrar el patrón.
+Este ejemplo es literal: `DemoUserService::update_user` ya existe en `src/application/demo_user.rs` pero **no tiene ruta registrada** — es el endpoint pendiente perfecto para calibrar el patrón.
 
 ### 1. Port y repository — solo si falta el acceso a datos
 
-`UserRepositoryPort::update` ya existe; si tu caso necesita un método nuevo:
+`DemoUserRepositoryPort::update` ya existe; si tu caso necesita un método nuevo:
 
 - Firma solo con tipos de dominio/primitivos, devuelve `DomainResult<T>`.
 - Implementación en `repository.rs` con filtro `deleted_at: { "$exists": false }`, `.map_err(DomainError::database)`, y `$set` con `updated_at` cuando mute estado.
@@ -52,11 +52,11 @@ Cero lógica de negocio. Los 5 pasos canónicos:
 ```rust
 #[tracing::instrument(skip_all)]
 pub async fn update_user(
-    State(service): State<Arc<UserService>>,
+    State(service): State<Arc<DemoUserService>>,
     Path(id): Path<String>,
     ValidatedBody(req): ValidatedBody<UpdateUserInput>,
-) -> Result<GenericApiResponse<UserOutput>, ApiError> {
-    let user_id = UserId::new(id);
+) -> Result<GenericApiResponse<DemoUserOutput>, ApiError> {
+    let user_id = DemoUserId::new(id);
     let user = service.update_user(&user_id, &req.name, &req.email).await?;
     Ok(GenericApiResponse::success(user.into()))
 }

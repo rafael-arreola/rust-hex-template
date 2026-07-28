@@ -1,8 +1,8 @@
-use crate::domain::entities::user::{User, UserId};
+use crate::domain::entities::demo_user::{DemoUser, DemoUserId};
 use crate::domain::error::{DomainError, DomainResult};
 use crate::domain::pagination::Pagination;
-use crate::domain::port::user::UserRepositoryPort;
-use crate::infrastructure::driven::mongo::user::model::UserModel;
+use crate::domain::port::demo_user::DemoUserRepositoryPort;
+use crate::infrastructure::driven::mongo::demo_user::model::DemoUserModel;
 use async_trait::async_trait;
 use futures::stream::TryStreamExt;
 use mongodb::{
@@ -12,17 +12,25 @@ use mongodb::{
 };
 
 #[derive(Clone)]
-pub struct UserRepository {
-    collection: Collection<UserModel>,
+pub struct DemoUserRepository {
+    collection: Collection<DemoUserModel>,
 }
 
-impl UserRepository {
-    pub fn new(db: &Database) -> Self {
-        Self { collection: db.collection::<UserModel>("users") }
+impl DemoUserRepository {
+    /// Building the repository ensures its indexes exist.
+    ///
+    /// Index creation lives here — not in `main.rs` — so "the indexes are
+    /// there" is a property of the type instead of a wiring step someone can
+    /// forget. Holding a `DemoUserRepository` means its indexes were created.
+    pub async fn new(db: &Database) -> DomainResult<Self> {
+        let repo = Self { collection: db.collection::<DemoUserModel>("users") };
+        repo.create_indexes().await?;
+        Ok(repo)
     }
 
-    /// Create database indexes (idempotent — safe to call on every startup)
-    pub async fn create_indexes(&self) -> DomainResult<()> {
+    /// Create database indexes (idempotent — safe to call on every startup).
+    /// Private: `new` is the only caller, by design.
+    async fn create_indexes(&self) -> DomainResult<()> {
         let indexes = vec![
             IndexModel::builder()
                 .keys(doc! { "email": 1 })
@@ -54,16 +62,16 @@ impl UserRepository {
             .await
             .map_err(|e| DomainError::database(e.to_string()))?;
 
-        tracing::info!("✓ User indexes created");
+        tracing::info!("✓ DemoUser indexes created");
         Ok(())
     }
 }
 
 #[async_trait]
-impl UserRepositoryPort for UserRepository {
+impl DemoUserRepositoryPort for DemoUserRepository {
     #[tracing::instrument(skip_all)]
-    async fn create(&self, user: &User) -> DomainResult<UserId> {
-        let model = UserModel::from(user.clone());
+    async fn create(&self, user: &DemoUser) -> DomainResult<DemoUserId> {
+        let model = DemoUserModel::from(user.clone());
         let result = self
             .collection
             .insert_one(model)
@@ -73,14 +81,14 @@ impl UserRepositoryPort for UserRepository {
         result
             .inserted_id
             .as_object_id()
-            .map(|oid| UserId::new(oid.to_hex()))
+            .map(|oid| DemoUserId::new(oid.to_hex()))
             .ok_or_else(|| DomainError::internal("Failed to get inserted ID"))
     }
 
     #[tracing::instrument(skip_all)]
-    async fn find_by_id(&self, id: &UserId) -> DomainResult<Option<User>> {
+    async fn find_by_id(&self, id: &DemoUserId) -> DomainResult<Option<DemoUser>> {
         let oid = ObjectId::parse_str(&**id)
-            .map_err(|_| DomainError::invalid_param("id", "User", &**id))?;
+            .map_err(|_| DomainError::invalid_param("id", "DemoUser", &**id))?;
 
         let model = self
             .collection
@@ -88,11 +96,11 @@ impl UserRepositoryPort for UserRepository {
             .await
             .map_err(|e| DomainError::database(e.to_string()))?;
 
-        Ok(model.map(User::from))
+        Ok(model.map(DemoUser::from))
     }
 
     #[tracing::instrument(skip_all)]
-    async fn find_by_email(&self, email: &str) -> DomainResult<Option<User>> {
+    async fn find_by_email(&self, email: &str) -> DomainResult<Option<DemoUser>> {
         let model = self
             .collection
             .find_one(doc! {
@@ -102,11 +110,11 @@ impl UserRepositoryPort for UserRepository {
             .await
             .map_err(|e| DomainError::database(e.to_string()))?;
 
-        Ok(model.map(User::from))
+        Ok(model.map(DemoUser::from))
     }
 
     #[tracing::instrument(skip_all)]
-    async fn find_all(&self, pagination: Pagination) -> DomainResult<Vec<User>> {
+    async fn find_all(&self, pagination: Pagination) -> DomainResult<Vec<DemoUser>> {
         let cursor = self
             .collection
             .find(doc! { "deleted_at": { "$exists": false } })
@@ -116,18 +124,18 @@ impl UserRepositoryPort for UserRepository {
             .await
             .map_err(|e| DomainError::database(e.to_string()))?;
 
-        let models: Vec<UserModel> =
+        let models: Vec<DemoUserModel> =
             cursor.try_collect().await.map_err(|e| DomainError::database(e.to_string()))?;
 
-        Ok(models.into_iter().map(User::from).collect())
+        Ok(models.into_iter().map(DemoUser::from).collect())
     }
 
     #[tracing::instrument(skip_all)]
-    async fn update(&self, id: &UserId, user: &User) -> DomainResult<bool> {
+    async fn update(&self, id: &DemoUserId, user: &DemoUser) -> DomainResult<bool> {
         let oid = ObjectId::parse_str(&**id)
-            .map_err(|_| DomainError::invalid_param("id", "User", &**id))?;
+            .map_err(|_| DomainError::invalid_param("id", "DemoUser", &**id))?;
 
-        let model = UserModel::from(user.clone());
+        let model = DemoUserModel::from(user.clone());
         let bson_doc = mongodb::bson::serialize_to_document(&model)
             .map_err(|e| DomainError::internal(e.to_string()))?;
 
@@ -144,9 +152,9 @@ impl UserRepositoryPort for UserRepository {
     }
 
     #[tracing::instrument(skip_all)]
-    async fn delete(&self, id: &UserId) -> DomainResult<bool> {
+    async fn delete(&self, id: &DemoUserId) -> DomainResult<bool> {
         let oid = ObjectId::parse_str(&**id)
-            .map_err(|_| DomainError::invalid_param("id", "User", &**id))?;
+            .map_err(|_| DomainError::invalid_param("id", "DemoUser", &**id))?;
 
         let now = mongodb::bson::DateTime::from_chrono(chrono::Utc::now());
 

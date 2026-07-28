@@ -1,5 +1,36 @@
 # Template Hexagonal — Rust
 
+## ⚠️ Lo primero: borra el código de ejemplo
+
+Las tres entidades que trae la plantilla existen **solo como referencia** y
+llevan el prefijo `Demo` para que sea imposible confundirlas con código tuyo:
+`DemoUser`, `DemoProduct`, `DemoOrder` (más `DemoPricingService`).
+
+Al arrancar un servicio nuevo, bórralas:
+
+```bash
+rm -rf src/domain/entities/demo_*.rs \
+       src/domain/port/demo_*.rs \
+       src/domain/services/demo_pricing.rs \
+       src/application/demo_*.rs \
+       src/infrastructure/driven/mongo/demo_* \
+       src/infrastructure/driving/http_axum/routes/demo_*
+```
+
+Y quita sus `pub mod demo_*;` de `application.rs`, `domain/entities.rs`,
+`domain/port.rs`, `domain/services/mod.rs`, `driven/mongo.rs` y
+`driving/http_axum/routes.rs`, más sus campos en `server/state.rs` y su wiring
+en `main.rs`. `cargo check` te dice exactamente qué falta.
+
+Lo que **no** lleva prefijo se queda: es la plantilla en sí (`DomainError`,
+`DomainId`, `GenericApiResponse`, middlewares, tracer, config, health).
+
+> Los ejemplos de nombres en este documento (`User`, `UserRepositoryPort`…)
+> ilustran la convención para una entidad **real** — sin prefijo. El prefijo
+> `Demo` marca únicamente el código desechable que viene en el repo.
+
+---
+
 ```text
 .
 ├── build/
@@ -80,20 +111,20 @@ El dominio **nunca** sabe quién lo llama ni quién implementa sus puertos.
 | `macros/`   | `as_json!` macro para serialización inline en tracing events.                                                                                         | —                                                                     |
 
 ```rust
-// src/domain/entities/order.rs
+// src/domain/entities/demo_order.rs
 pub struct Order {
     pub id: Option<OrderId>,
     pub total_price: f64,
 }
 
-// src/domain/port/order.rs — solo traits de SALIDA
+// src/domain/port/demo_order.rs — solo traits de SALIDA
 #[async_trait]
 pub trait OrderRepositoryPort: Send + Sync {
     async fn create(&self, order: &Order) -> DomainResult<OrderId>;
     async fn find_by_id(&self, id: &OrderId) -> DomainResult<Option<Order>>;
 }
 
-// src/domain/services/pricing.rs — sin constructor, sin I/O
+// src/domain/services/demo_pricing.rs — sin constructor, sin I/O
 pub struct PricingService;
 
 impl PricingService {
@@ -115,7 +146,7 @@ Es la **única puerta de entrada** a la lógica de negocio. Orquesta entidades, 
 | `shared/mod.rs` | Sub-flujos con I/O reusables: `FraudChecker`, `InventoryReserver`. Reciben repos/clients por constructor.         | Entry points (eso va en `{entidad}.rs`)               |
 
 ```rust
-// src/application/order.rs
+// src/application/demo_order.rs
 pub struct OrderService {
     order_repo: Arc<dyn OrderRepositoryPort>,   // ← trait definido en domain::port
     pricing: PricingService,                     // ← domain service, sin I/O
@@ -151,7 +182,7 @@ Implementan los traits definidos en `domain::ports`. Conexión con el mundo real
 | `redis/`           | Conexiones y helpers Redis  | Tipo concreto (sin trait)              |
 
 ```rust
-// src/infrastructure/driven/mongo/order/repository.rs
+// src/infrastructure/driven/mongo/demo_order/repository.rs
 pub struct OrderRepository { collection: Collection<OrderModel> }
 
 #[async_trait]
@@ -172,7 +203,7 @@ impl OrderRepositoryPort for OrderRepository {
 Importan **directamente** los services de `application/`. Sin trait de por medio.
 
 ```rust
-// src/infrastructure/driving/http_axum/routes/order.rs
+// src/infrastructure/driving/http_axum/routes/demo_order.rs
 pub async fn create_order(
     State(service): State<Arc<OrderService>>,  // ← tipo concreto, sin trait
     ValidatedBody(input): ValidatedBody<CreateOrderInput>,  // ← JSON o MessagePack según Content-Type
@@ -204,15 +235,13 @@ pub async fn create_order(
 let mongo = MongoProvider::new(&env.service_name, &env.mongo_url, &env.mongo_db).await?;
 let _redis = RedisProvider::new(&env.redis_url, &env.redis_prefix).await?;
 
-// 2. Driven adapters
-let order_repo = Arc::new(OrderRepository::new(&db));
+// 2. Driven adapters — `new` es async y falible porque también crea los
+//    índices de la colección; no hay un create_indexes() aparte que olvidar.
+let order_repo = Arc::new(OrderRepository::new(&db).await?);
 
 // 3. Application services (casos de uso)
-let order_service = Arc::new(OrderService::new(
-    order_repo as Arc<dyn OrderRepositoryPort>,
-    user_repo as Arc<dyn UserRepositoryPort>,
-    product_repo as Arc<dyn ProductRepositoryPort>,
-));
+//    Sin casts: Rust coacciona Arc<Concrete> a Arc<dyn Trait> por su cuenta.
+let order_service = Arc::new(OrderService::new(order_repo, user_repo, product_repo));
 
 // 4. Driving adapters
 let state = AppState { health_checker, user_service, product_service, order_service };

@@ -1,9 +1,9 @@
-use crate::domain::entities::order::{Order, OrderId};
-use crate::domain::entities::user::UserId;
+use crate::domain::entities::demo_order::{DemoOrder, DemoOrderId};
+use crate::domain::entities::demo_user::DemoUserId;
 use crate::domain::error::{DomainError, DomainResult};
 use crate::domain::pagination::Pagination;
-use crate::domain::port::order::OrderRepositoryPort;
-use crate::infrastructure::driven::mongo::order::model::OrderModel;
+use crate::domain::port::demo_order::DemoOrderRepositoryPort;
+use crate::infrastructure::driven::mongo::demo_order::model::DemoOrderModel;
 use async_trait::async_trait;
 use futures::stream::TryStreamExt;
 use mongodb::{
@@ -13,17 +13,22 @@ use mongodb::{
 };
 
 #[derive(Clone)]
-pub struct OrderRepository {
-    collection: Collection<OrderModel>,
+pub struct DemoOrderRepository {
+    collection: Collection<DemoOrderModel>,
 }
 
-impl OrderRepository {
-    pub fn new(db: &Database) -> Self {
-        Self { collection: db.collection::<OrderModel>("orders") }
+impl DemoOrderRepository {
+    /// Building the repository ensures its indexes exist. See
+    /// `DemoUserRepository::new` for the rationale.
+    pub async fn new(db: &Database) -> DomainResult<Self> {
+        let repo = Self { collection: db.collection::<DemoOrderModel>("orders") };
+        repo.create_indexes().await?;
+        Ok(repo)
     }
 
-    /// Create database indexes (idempotent — safe to call on every startup)
-    pub async fn create_indexes(&self) -> DomainResult<()> {
+    /// Create database indexes (idempotent — safe to call on every startup).
+    /// Private: `new` is the only caller, by design.
+    async fn create_indexes(&self) -> DomainResult<()> {
         let indexes = vec![
             IndexModel::builder()
                 .keys(doc! { "user_id": 1, "created_at": -1 })
@@ -48,10 +53,10 @@ impl OrderRepository {
 }
 
 #[async_trait]
-impl OrderRepositoryPort for OrderRepository {
+impl DemoOrderRepositoryPort for DemoOrderRepository {
     #[tracing::instrument(skip_all)]
-    async fn create(&self, order: &Order) -> DomainResult<OrderId> {
-        let model = OrderModel::from(order.clone());
+    async fn create(&self, order: &DemoOrder) -> DomainResult<DemoOrderId> {
+        let model = DemoOrderModel::from(order.clone());
 
         let result = self
             .collection
@@ -62,14 +67,14 @@ impl OrderRepositoryPort for OrderRepository {
         result
             .inserted_id
             .as_object_id()
-            .map(|oid| OrderId::new(oid.to_hex()))
+            .map(|oid| DemoOrderId::new(oid.to_hex()))
             .ok_or_else(|| DomainError::internal("Failed to get inserted ID"))
     }
 
     #[tracing::instrument(skip_all)]
-    async fn find_by_id(&self, id: &OrderId) -> DomainResult<Option<Order>> {
+    async fn find_by_id(&self, id: &DemoOrderId) -> DomainResult<Option<DemoOrder>> {
         let oid = ObjectId::parse_str(&**id)
-            .map_err(|_| DomainError::invalid_param("id", "Order", &**id))?;
+            .map_err(|_| DomainError::invalid_param("id", "DemoOrder", &**id))?;
 
         let model = self
             .collection
@@ -77,11 +82,11 @@ impl OrderRepositoryPort for OrderRepository {
             .await
             .map_err(|e| DomainError::database(e.to_string()))?;
 
-        Ok(model.map(Order::from))
+        Ok(model.map(DemoOrder::from))
     }
 
     #[tracing::instrument(skip_all)]
-    async fn find_all(&self, pagination: Pagination) -> DomainResult<Vec<Order>> {
+    async fn find_all(&self, pagination: Pagination) -> DomainResult<Vec<DemoOrder>> {
         let cursor = self
             .collection
             .find(doc! { "deleted_at": { "$exists": false } })
@@ -91,20 +96,20 @@ impl OrderRepositoryPort for OrderRepository {
             .await
             .map_err(|e| DomainError::database(e.to_string()))?;
 
-        let models: Vec<OrderModel> =
+        let models: Vec<DemoOrderModel> =
             cursor.try_collect().await.map_err(|e| DomainError::database(e.to_string()))?;
 
-        Ok(models.into_iter().map(Order::from).collect())
+        Ok(models.into_iter().map(DemoOrder::from).collect())
     }
 
     #[tracing::instrument(skip_all)]
     async fn find_by_user_id(
         &self,
-        user_id: &UserId,
+        user_id: &DemoUserId,
         pagination: Pagination,
-    ) -> DomainResult<Vec<Order>> {
+    ) -> DomainResult<Vec<DemoOrder>> {
         let oid = ObjectId::parse_str(&**user_id)
-            .map_err(|_| DomainError::invalid_param("user_id", "Order", &**user_id))?;
+            .map_err(|_| DomainError::invalid_param("user_id", "DemoOrder", &**user_id))?;
 
         let cursor = self
             .collection
@@ -118,16 +123,16 @@ impl OrderRepositoryPort for OrderRepository {
             .await
             .map_err(|e| DomainError::database(e.to_string()))?;
 
-        let models: Vec<OrderModel> =
+        let models: Vec<DemoOrderModel> =
             cursor.try_collect().await.map_err(|e| DomainError::database(e.to_string()))?;
 
-        Ok(models.into_iter().map(Order::from).collect())
+        Ok(models.into_iter().map(DemoOrder::from).collect())
     }
 
     #[tracing::instrument(skip_all)]
-    async fn delete(&self, id: &OrderId) -> DomainResult<bool> {
+    async fn delete(&self, id: &DemoOrderId) -> DomainResult<bool> {
         let oid = ObjectId::parse_str(&**id)
-            .map_err(|_| DomainError::invalid_param("id", "Order", &**id))?;
+            .map_err(|_| DomainError::invalid_param("id", "DemoOrder", &**id))?;
 
         let now = mongodb::bson::DateTime::from_chrono(chrono::Utc::now());
 

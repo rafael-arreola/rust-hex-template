@@ -1,8 +1,8 @@
-use crate::domain::entities::product::{Product, ProductId, ProductMetadata};
+use crate::domain::entities::demo_product::{DemoProduct, DemoProductId, DemoProductMetadata};
 use crate::domain::error::{DomainError, DomainResult};
 use crate::domain::pagination::Pagination;
-use crate::domain::port::product::ProductRepositoryPort;
-use crate::infrastructure::driven::mongo::product::model::ProductModel;
+use crate::domain::port::demo_product::DemoProductRepositoryPort;
+use crate::infrastructure::driven::mongo::demo_product::model::DemoProductModel;
 use async_trait::async_trait;
 use futures::stream::TryStreamExt;
 use mongodb::{
@@ -12,17 +12,22 @@ use mongodb::{
 };
 
 #[derive(Clone)]
-pub struct ProductRepository {
-    collection: Collection<ProductModel>,
+pub struct DemoProductRepository {
+    collection: Collection<DemoProductModel>,
 }
 
-impl ProductRepository {
-    pub fn new(db: &Database) -> Self {
-        Self { collection: db.collection::<ProductModel>("products") }
+impl DemoProductRepository {
+    /// Building the repository ensures its indexes exist. See
+    /// `DemoUserRepository::new` for the rationale.
+    pub async fn new(db: &Database) -> DomainResult<Self> {
+        let repo = Self { collection: db.collection::<DemoProductModel>("products") };
+        repo.create_indexes().await?;
+        Ok(repo)
     }
 
-    /// Create database indexes (idempotent — safe to call on every startup)
-    pub async fn create_indexes(&self) -> DomainResult<()> {
+    /// Create database indexes (idempotent — safe to call on every startup).
+    /// Private: `new` is the only caller, by design.
+    async fn create_indexes(&self) -> DomainResult<()> {
         let indexes = vec![
             IndexModel::builder()
                 .keys(doc! { "deleted_at": 1, "created_at": -1 })
@@ -51,10 +56,10 @@ impl ProductRepository {
 }
 
 #[async_trait]
-impl ProductRepositoryPort for ProductRepository {
+impl DemoProductRepositoryPort for DemoProductRepository {
     #[tracing::instrument(skip_all)]
-    async fn create(&self, product: &Product) -> DomainResult<ProductId> {
-        let model = ProductModel::from(product.clone());
+    async fn create(&self, product: &DemoProduct) -> DomainResult<DemoProductId> {
+        let model = DemoProductModel::from(product.clone());
         let result = self
             .collection
             .insert_one(model)
@@ -64,14 +69,14 @@ impl ProductRepositoryPort for ProductRepository {
         result
             .inserted_id
             .as_object_id()
-            .map(|oid| ProductId::new(oid.to_hex()))
+            .map(|oid| DemoProductId::new(oid.to_hex()))
             .ok_or_else(|| DomainError::internal("Failed to get inserted ID"))
     }
 
     #[tracing::instrument(skip_all)]
-    async fn find_by_id(&self, id: &ProductId) -> DomainResult<Option<Product>> {
+    async fn find_by_id(&self, id: &DemoProductId) -> DomainResult<Option<DemoProduct>> {
         let oid = ObjectId::parse_str(&**id)
-            .map_err(|_| DomainError::invalid_param("id", "Product", &**id))?;
+            .map_err(|_| DomainError::invalid_param("id", "DemoProduct", &**id))?;
 
         let model = self
             .collection
@@ -79,11 +84,11 @@ impl ProductRepositoryPort for ProductRepository {
             .await
             .map_err(|e| DomainError::database(e.to_string()))?;
 
-        Ok(model.map(Product::from))
+        Ok(model.map(DemoProduct::from))
     }
 
     #[tracing::instrument(skip_all)]
-    async fn find_all(&self, pagination: Pagination) -> DomainResult<Vec<Product>> {
+    async fn find_all(&self, pagination: Pagination) -> DomainResult<Vec<DemoProduct>> {
         let cursor = self
             .collection
             .find(doc! { "deleted_at": { "$exists": false } })
@@ -93,20 +98,20 @@ impl ProductRepositoryPort for ProductRepository {
             .await
             .map_err(|e| DomainError::database(e.to_string()))?;
 
-        let models: Vec<ProductModel> =
+        let models: Vec<DemoProductModel> =
             cursor.try_collect().await.map_err(|e| DomainError::database(e.to_string()))?;
 
-        Ok(models.into_iter().map(Product::from).collect())
+        Ok(models.into_iter().map(DemoProduct::from).collect())
     }
 
     #[tracing::instrument(skip_all)]
     async fn update_metadata(
         &self,
-        id: &ProductId,
-        metadata: &ProductMetadata,
+        id: &DemoProductId,
+        metadata: &DemoProductMetadata,
     ) -> DomainResult<bool> {
         let oid = ObjectId::parse_str(&**id)
-            .map_err(|_| DomainError::invalid_param("id", "Product", &**id))?;
+            .map_err(|_| DomainError::invalid_param("id", "DemoProduct", &**id))?;
 
         let bson_metadata = bson::serialize_to_bson(metadata)
             .map_err(|e| DomainError::internal(format!("Serialization error: {}", e)))?;
@@ -131,18 +136,33 @@ impl ProductRepositoryPort for ProductRepository {
     }
 
     #[tracing::instrument(skip_all)]
-    async fn update_stock(&self, id: &ProductId, delta: i32) -> DomainResult<bool> {
+    async fn try_reserve_stock(&self, id: &DemoProductId, quantity: i32) -> DomainResult<bool> {
+        if quantity <= 0 {
+            return Err(DomainError::Invalid {
+                field: "quantity",
+                reason: format!("Reserved quantity must be positive, got {}", quantity),
+            });
+        }
+
         let oid = ObjectId::parse_str(&**id)
-            .map_err(|_| DomainError::invalid_param("id", "Product", &**id))?;
+            .map_err(|_| DomainError::invalid_param("id", "DemoProduct", &**id))?;
 
         let now = bson::DateTime::from_chrono(chrono::Utc::now());
 
+        // The `$gte` guard is what makes this atomic: MongoDB matches the
+        // document and applies the `$inc` as one operation, so two concurrent
+        // reservations cannot both succeed against the same last unit.
+        // Dropping it turns this into a read-check-write race.
         let result = self
             .collection
             .update_one(
-                doc! { "_id": oid, "deleted_at": { "$exists": false } },
                 doc! {
-                    "$inc": { "stock": delta },
+                    "_id": oid,
+                    "deleted_at": { "$exists": false },
+                    "stock": { "$gte": quantity },
+                },
+                doc! {
+                    "$inc": { "stock": -quantity },
                     "$set": { "updated_at": now },
                 },
             )
@@ -153,9 +173,38 @@ impl ProductRepositoryPort for ProductRepository {
     }
 
     #[tracing::instrument(skip_all)]
-    async fn delete(&self, id: &ProductId) -> DomainResult<bool> {
+    async fn release_stock(&self, id: &DemoProductId, quantity: i32) -> DomainResult<bool> {
+        if quantity <= 0 {
+            return Err(DomainError::Invalid {
+                field: "quantity",
+                reason: format!("Released quantity must be positive, got {}", quantity),
+            });
+        }
+
         let oid = ObjectId::parse_str(&**id)
-            .map_err(|_| DomainError::invalid_param("id", "Product", &**id))?;
+            .map_err(|_| DomainError::invalid_param("id", "DemoProduct", &**id))?;
+
+        let now = bson::DateTime::from_chrono(chrono::Utc::now());
+
+        let result = self
+            .collection
+            .update_one(
+                doc! { "_id": oid, "deleted_at": { "$exists": false } },
+                doc! {
+                    "$inc": { "stock": quantity },
+                    "$set": { "updated_at": now },
+                },
+            )
+            .await
+            .map_err(|e| DomainError::database(e.to_string()))?;
+
+        Ok(result.matched_count > 0)
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn delete(&self, id: &DemoProductId) -> DomainResult<bool> {
+        let oid = ObjectId::parse_str(&**id)
+            .map_err(|_| DomainError::invalid_param("id", "DemoProduct", &**id))?;
 
         let now = bson::DateTime::from_chrono(chrono::Utc::now());
 

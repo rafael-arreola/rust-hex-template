@@ -1,7 +1,8 @@
 use axum::{
     body::Body,
+    extract::State,
     http::{HeaderMap, HeaderName, HeaderValue, Request, StatusCode},
-    response::Response,
+    response::{IntoResponse, Response},
 };
 use opentelemetry::Context;
 use opentelemetry::propagation::Extractor;
@@ -9,8 +10,12 @@ use opentelemetry::trace::{
     FutureExt as OtelFutureExt, SpanContext, SpanId, TraceContextExt, TraceFlags, TraceId,
     TraceState,
 };
+use std::time::Duration;
 use tracing::Instrument;
 use tracing_opentelemetry::OpenTelemetrySpanExt;
+
+use crate::domain::error::DomainError;
+use crate::infrastructure::driving::http_axum::server::error::ApiError;
 
 /// Per-request trace context middleware.
 ///
@@ -66,6 +71,37 @@ pub async fn trace_context(mut req: Request<Body>, next: axum::middleware::Next)
 /// Newtype stored in request extensions so downstream handlers can retrieve it.
 #[derive(Clone, Debug)]
 pub struct RequestId(pub String);
+
+/// Per-request time budget.
+///
+/// A handler that never returns otherwise holds its connection — and the
+/// resources behind it — forever. This is the last-resort guard; per-dependency
+/// timeouts (see `shared::http_client`) should normally fire first.
+///
+/// Deliberately **not** `tower_http::timeout::TimeoutLayer`: that answers with
+/// a bare 408 and an empty body, breaking the invariant that every response
+/// carries the standard envelope. Going through `ApiError` keeps `trace_id` and
+/// `cause` in place, and reuses the single error-logging choke point.
+///
+/// Layer it *inside* [`trace_context`] so the timeout is recorded on the
+/// request span and the response still gets its `X-Request-Id`.
+pub async fn request_timeout(
+    State(budget): State<Duration>,
+    req: Request<Body>,
+    next: axum::middleware::Next,
+) -> Response<Body> {
+    let method = req.method().clone();
+    let path = req.uri().path().to_string();
+
+    match tokio::time::timeout(budget, next.run(req)).await {
+        Ok(response) => response,
+        Err(_) => ApiError::from(DomainError::timeout(format!(
+            "{} {} exceeded the {:?} request budget",
+            method, path, budget
+        )))
+        .into_response(),
+    }
+}
 
 struct HeaderExtractor<'a>(&'a HeaderMap);
 

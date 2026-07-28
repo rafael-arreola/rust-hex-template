@@ -34,6 +34,7 @@ impl From<DomainError> for ApiError {
             DomainError::Unauthorized(_) => StatusCode::UNAUTHORIZED,
             DomainError::Forbidden(_) => StatusCode::FORBIDDEN,
             DomainError::BusinessRule(_) => StatusCode::UNPROCESSABLE_ENTITY,
+            DomainError::Timeout { .. } => StatusCode::GATEWAY_TIMEOUT,
             DomainError::ExternalService { .. }
             | DomainError::Database(_)
             | DomainError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,

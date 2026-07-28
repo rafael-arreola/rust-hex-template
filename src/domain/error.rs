@@ -26,6 +26,9 @@ pub enum DomainError {
     #[error("External service error: {service} - {message}")]
     ExternalService { service: String, message: String },
 
+    #[error("Operation timed out: {operation}")]
+    Timeout { operation: String },
+
     #[error("Database error: {0}")]
     Database(String),
 
@@ -45,6 +48,7 @@ impl DomainError {
             Self::Forbidden(_) => "FORBIDDEN",
             Self::BusinessRule(_) => "BUSINESS_RULE_VIOLATION",
             Self::ExternalService { .. } => "EXTERNAL_SERVICE_UNAVAILABLE",
+            Self::Timeout { .. } => "TIMEOUT",
             Self::Database(_) => "INTERNAL_ERROR",
             Self::Internal(_) => "INTERNAL_ERROR",
         }
@@ -68,6 +72,9 @@ impl DomainError {
             Self::ExternalService { service, .. } => {
                 format!("The '{service}' service is currently unavailable. Please retry later.")
             }
+            Self::Timeout { .. } => {
+                "The request took too long to complete. Please retry.".to_string()
+            }
             Self::Database(_) | Self::Internal(_) => {
                 "An internal error occurred. Use the trace_id to report it.".to_string()
             }
@@ -84,9 +91,10 @@ impl DomainError {
             Self::Unauthorized(_) | Self::Forbidden(_) | Self::BusinessRule(_) => {
                 ErrorSeverity::Warn
             }
-            Self::ExternalService { .. } | Self::Database(_) | Self::Internal(_) => {
-                ErrorSeverity::Error
-            }
+            Self::ExternalService { .. }
+            | Self::Timeout { .. }
+            | Self::Database(_)
+            | Self::Internal(_) => ErrorSeverity::Error,
         }
     }
 
@@ -126,6 +134,14 @@ impl DomainError {
     pub fn external_service(service: impl Into<String>, message: impl Into<String>) -> Self {
         Self::ExternalService { service: service.into(), message: message.into() }
     }
+
+    /// Constructor: an operation exceeded its time budget.
+    ///
+    /// `operation` is internal detail (it names the endpoint, query or
+    /// dependency that ran long) and never reaches the client.
+    pub fn timeout(operation: impl Into<String>) -> Self {
+        Self::Timeout { operation: operation.into() }
+    }
 }
 
 /// Log severity a driving boundary must use when reporting a [`DomainError`].
@@ -156,6 +172,7 @@ mod tests {
             DomainError::database(secret),
             DomainError::internal(secret),
             DomainError::external_service("payments", secret),
+            DomainError::timeout(secret),
         ] {
             assert!(error.to_string().contains(secret), "internal view keeps full detail");
             assert!(
@@ -168,18 +185,19 @@ mod tests {
 
     #[test]
     fn client_caused_errors_keep_their_display_text() {
-        let error = DomainError::not_found("User", "u9");
+        let error = DomainError::not_found("DemoUser", "u9");
         assert_eq!(error.public_message(), error.to_string());
     }
 
     #[test]
     fn severity_matches_error_nature() {
-        assert_eq!(DomainError::not_found("User", "u9").severity(), ErrorSeverity::Info);
+        assert_eq!(DomainError::not_found("DemoUser", "u9").severity(), ErrorSeverity::Info);
         assert_eq!(DomainError::business_rule("no stock").severity(), ErrorSeverity::Warn);
         assert_eq!(DomainError::database("boom").severity(), ErrorSeverity::Error);
         assert_eq!(
             DomainError::external_service("payments", "boom").severity(),
             ErrorSeverity::Error
         );
+        assert_eq!(DomainError::timeout("GET /slow").severity(), ErrorSeverity::Error);
     }
 }

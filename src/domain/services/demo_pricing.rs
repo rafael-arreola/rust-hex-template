@@ -7,13 +7,13 @@
 // services or other domain services.
 // ---------------------------------------------------------------------------
 
-use crate::domain::entities::order::Order;
+use crate::domain::entities::demo_order::DemoOrder;
 
 /// Example domain service — pure calculation with no side effects.
-pub struct PricingService;
+pub struct DemoPricingService;
 
-impl PricingService {
-    /// Creates a new `PricingService`.
+impl DemoPricingService {
+    /// Creates a new `DemoPricingService`.
     ///
     /// Note: no constructor parameters — this service is stateless.
     pub fn new() -> Self {
@@ -23,7 +23,7 @@ impl PricingService {
     /// Applies a volume discount to an order's total price.
     ///
     /// Business rule: orders over 1000 units get a 10% discount.
-    pub fn apply_discount(&self, order: &Order) -> f64 {
+    pub fn apply_discount(&self, order: &DemoOrder) -> f64 {
         if order.total_price > 1000.0 { order.total_price * 0.90 } else { order.total_price }
     }
 
@@ -35,7 +35,7 @@ impl PricingService {
     }
 }
 
-impl Default for PricingService {
+impl Default for DemoPricingService {
     fn default() -> Self {
         Self::new()
     }

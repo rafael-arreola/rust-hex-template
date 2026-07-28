@@ -1,12 +1,12 @@
-use crate::domain::entities::order::{Order, OrderId};
-use crate::domain::entities::product::ProductId;
-use crate::domain::entities::user::UserId;
+use crate::domain::entities::demo_order::{DemoOrder, DemoOrderId};
+use crate::domain::entities::demo_product::DemoProductId;
+use crate::domain::entities::demo_user::DemoUserId;
 use mongodb::bson::{self, oid::ObjectId};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub struct OrderModel {
+pub struct DemoOrderModel {
     #[serde(rename = "_id", skip_serializing_if = "Option::is_none")]
     pub id: Option<ObjectId>,
     pub user_id: ObjectId,
@@ -19,8 +19,8 @@ pub struct OrderModel {
     pub deleted_at: Option<bson::DateTime>,
 }
 
-impl From<Order> for OrderModel {
-    fn from(order: Order) -> Self {
+impl From<DemoOrder> for DemoOrderModel {
+    fn from(order: DemoOrder) -> Self {
         let user_oid = ObjectId::parse_str(&*order.user_id).unwrap_or_default();
         let product_oid = ObjectId::parse_str(&*order.product_id).unwrap_or_default();
         let id = order.id.and_then(|id| ObjectId::parse_str(&*id).ok());
@@ -38,12 +38,12 @@ impl From<Order> for OrderModel {
     }
 }
 
-impl From<OrderModel> for Order {
-    fn from(model: OrderModel) -> Self {
+impl From<DemoOrderModel> for DemoOrder {
+    fn from(model: DemoOrderModel) -> Self {
         Self {
-            id: model.id.map(|oid| OrderId::new(oid.to_hex())),
-            user_id: UserId::new(model.user_id.to_hex()),
-            product_id: ProductId::new(model.product_id.to_hex()),
+            id: model.id.map(|oid| DemoOrderId::new(oid.to_hex())),
+            user_id: DemoUserId::new(model.user_id.to_hex()),
+            product_id: DemoProductId::new(model.product_id.to_hex()),
             quantity: model.quantity,
             total_price: model.total_price,
             created_at: model.created_at.to_chrono(),

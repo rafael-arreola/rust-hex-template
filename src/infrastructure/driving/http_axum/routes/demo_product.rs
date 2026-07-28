@@ -1,7 +1,7 @@
 pub mod dtos;
 
-use crate::application::product::ProductService;
-use crate::domain::entities::product::{ProductId, ProductMetadata};
+use crate::application::demo_product::DemoProductService;
+use crate::domain::entities::demo_product::{DemoProductId, DemoProductMetadata};
 use crate::domain::pagination::Pagination;
 use crate::infrastructure::driving::http_axum::server::{
     error::ApiError,
@@ -18,10 +18,10 @@ use serde::Deserialize;
 use std::sync::Arc;
 use validator::Validate;
 
-use self::dtos::{CreateProductInput, ProductOutput, UpdateProductMetadataInput};
+use self::dtos::{CreateDemoProductInput, DemoProductOutput, UpdateDemoProductMetadataInput};
 
 #[derive(Debug, Deserialize, Validate)]
-pub struct ProductQuery {
+pub struct DemoProductQuery {
     #[validate(range(min = 1))]
     pub page: Option<u32>,
 
@@ -38,10 +38,10 @@ pub fn router() -> Router<AppState> {
 
 #[tracing::instrument(skip_all)]
 pub async fn create_product(
-    State(service): State<Arc<ProductService>>,
-    ValidatedBody(req): ValidatedBody<CreateProductInput>,
-) -> Result<GenericApiResponse<ProductOutput>, ApiError> {
-    let metadata = ProductMetadata {
+    State(service): State<Arc<DemoProductService>>,
+    ValidatedBody(req): ValidatedBody<CreateDemoProductInput>,
+) -> Result<GenericApiResponse<DemoProductOutput>, ApiError> {
+    let metadata = DemoProductMetadata {
         description: req.description,
         category: req.category,
         tags: req.tags.unwrap_or_default(),
@@ -54,37 +54,37 @@ pub async fn create_product(
 
 #[tracing::instrument(skip_all)]
 pub async fn get_product(
-    State(service): State<Arc<ProductService>>,
+    State(service): State<Arc<DemoProductService>>,
     Path(id): Path<String>,
-) -> Result<GenericApiResponse<ProductOutput>, ApiError> {
-    let product_id = ProductId::new(id);
+) -> Result<GenericApiResponse<DemoProductOutput>, ApiError> {
+    let product_id = DemoProductId::new(id);
     let product = service.get_product(&product_id).await?;
     Ok(GenericApiResponse::success(product.into()))
 }
 
 #[tracing::instrument(skip_all)]
 pub async fn list_products(
-    State(service): State<Arc<ProductService>>,
-    Query(query): Query<ProductQuery>,
-) -> Result<GenericApiResponse<GenericPagination<ProductOutput>>, ApiError> {
+    State(service): State<Arc<DemoProductService>>,
+    Query(query): Query<DemoProductQuery>,
+) -> Result<GenericApiResponse<GenericPagination<DemoProductOutput>>, ApiError> {
     let page = query.page.unwrap_or(1);
     let limit = query.limit.unwrap_or(20);
     let pagination = Pagination { page, limit };
 
     let products = service.list_products(pagination).await?;
     let total = service.count_products().await?;
-    let dtos: Vec<ProductOutput> = products.into_iter().map(Into::into).collect();
+    let dtos: Vec<DemoProductOutput> = products.into_iter().map(Into::into).collect();
     Ok(GenericApiResponse::paginated(dtos, total, page, limit))
 }
 
 #[tracing::instrument(skip_all)]
 pub async fn update_metadata(
-    State(service): State<Arc<ProductService>>,
+    State(service): State<Arc<DemoProductService>>,
     Path(id): Path<String>,
-    ValidatedBody(req): ValidatedBody<UpdateProductMetadataInput>,
-) -> Result<GenericApiResponse<ProductOutput>, ApiError> {
-    let product_id = ProductId::new(id);
-    let metadata = ProductMetadata {
+    ValidatedBody(req): ValidatedBody<UpdateDemoProductMetadataInput>,
+) -> Result<GenericApiResponse<DemoProductOutput>, ApiError> {
+    let product_id = DemoProductId::new(id);
+    let metadata = DemoProductMetadata {
         description: req.description,
         category: req.category,
         tags: req.tags,
@@ -97,10 +97,10 @@ pub async fn update_metadata(
 
 #[tracing::instrument(skip_all)]
 pub async fn delete_product(
-    State(service): State<Arc<ProductService>>,
+    State(service): State<Arc<DemoProductService>>,
     Path(id): Path<String>,
 ) -> Result<GenericApiResponse<()>, ApiError> {
-    let product_id = ProductId::new(id);
+    let product_id = DemoProductId::new(id);
     service.delete_product(&product_id).await?;
     Ok(GenericApiResponse::success(()))
 }

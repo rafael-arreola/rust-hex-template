@@ -1,3 +1,3 @@
-pub mod order;
-pub mod product;
-pub mod user;
+pub mod demo_order;
+pub mod demo_product;
+pub mod demo_user;

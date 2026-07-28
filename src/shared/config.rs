@@ -16,6 +16,7 @@ pub struct Env {
     pub debug_level: String,
     pub cors_origins: String,
     pub drain_timeout_secs: u64,
+    pub request_timeout_secs: u64,
     pub msgpack_enabled: bool,
 }
 
@@ -43,6 +44,7 @@ impl Env {
             debug_level: env::var("DEBUG_LEVEL").unwrap_or_else(|_| "info".to_string()),
             cors_origins: env::var("CORS_ORIGINS").unwrap_or_else(|_| "*".to_string()),
             drain_timeout_secs: parse_timeout("DRAIN_TIMEOUT_SECS", 10),
+            request_timeout_secs: parse_timeout("REQUEST_TIMEOUT_SECS", 30),
             msgpack_enabled: parse_bool("ENABLE_MSGPACK", true),
         }
     }
@@ -53,51 +55,6 @@ fn require_env(name: &str) -> String {
         eprintln!("CRITICAL ERROR: Missing required environment variable '{}'", name);
         process::exit(1);
     })
-}
-
-/// Validates that the environment variable is present and is a clean DNS/hostname (no 'http://' or slashes).
-#[allow(dead_code)]
-fn require_dns(name: &str) -> String {
-    let val = require_env(name);
-    let clean = val.trim();
-    if clean.contains("://") || clean.contains('/') {
-        eprintln!(
-            "CRITICAL ERROR: Variable '{}' must be a clean DNS/hostname (e.g. 'example.com'), got '{}'",
-            name, val
-        );
-        process::exit(1);
-    }
-    clean.to_string()
-}
-
-/// Validates that the environment variable is present and is a valid HTTP/HTTPS URL.
-#[allow(dead_code)]
-fn require_url(name: &str) -> String {
-    let val = require_env(name);
-    let clean = val.trim();
-    if !clean.starts_with("http://") && !clean.starts_with("https://") {
-        eprintln!(
-            "CRITICAL ERROR: Variable '{}' must be a valid HTTP/HTTPS URL starting with http:// or https://, got '{}'",
-            name, val
-        );
-        process::exit(1);
-    }
-    clean.to_string()
-}
-
-/// Tries to load any of the specified environment variable names, failing if none of them are present.
-#[allow(dead_code)]
-fn require_env_any(names: &[&str]) -> String {
-    for name in names {
-        if let Ok(val) = env::var(name) {
-            return val.trim().to_string();
-        }
-    }
-    eprintln!(
-        "CRITICAL ERROR: Missing required environment variable. Must provide one of: {:?}",
-        names
-    );
-    process::exit(1);
 }
 
 fn parse_port() -> u16 {

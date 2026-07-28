@@ -3,13 +3,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::domain::values;
 
-#[derive(Debug, Clone)]
-pub struct ProductMarker;
-pub type ProductId = values::DomainId<ProductMarker>;
+pub struct DemoProductMarker;
+pub type DemoProductId = values::DomainId<DemoProductMarker>;
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 #[serde(rename_all = "lowercase")]
-pub enum ProductStatus {
+pub enum DemoProductStatus {
     #[default]
     Draft,
     Active,
@@ -18,7 +17,7 @@ pub enum ProductStatus {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
-pub struct ProductMetadata {
+pub struct DemoProductMetadata {
     pub description: Option<String>,
     pub category: String,
     pub tags: Vec<String>,
@@ -26,21 +25,21 @@ pub struct ProductMetadata {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct Product {
+pub struct DemoProduct {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub id: Option<ProductId>,
+    pub id: Option<DemoProductId>,
     pub name: String,
     pub price: f64,
     pub stock: i32,
-    pub status: ProductStatus,
-    pub metadata: ProductMetadata,
+    pub status: DemoProductStatus,
+    pub metadata: DemoProductMetadata,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub deleted_at: Option<DateTime<Utc>>,
 }
 
-impl Product {
+impl DemoProduct {
     pub fn is_deleted(&self) -> bool {
         self.deleted_at.is_some()
     }

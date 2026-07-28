@@ -59,19 +59,59 @@ impl_domain_id_value_for_int!(u32);
 /// Type-safe domain identifier parameterized by a marker type `T` and an
 /// optional inner value type `V` (defaults to [`String`]).
 ///
+/// The marker needs no derives at all — see the trait impls below.
+///
 /// ```ignore
-/// #[derive(Debug, Clone)]
 /// pub struct UserMarker;
 /// pub type UserId = DomainId<UserMarker>;             // String-backed
 /// pub type NumericUserId = DomainId<UserMarker, i64>; // i64-backed
 /// ```
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct DomainId<T, V = String>
 where
     V: DomainIdValue,
 {
     id: V,
     _marker: PhantomData<T>,
+}
+
+// ---------------------------------------------------------------------------
+// Core traits — implemented by hand, on purpose.
+//
+// `#[derive(Clone, Debug, PartialEq, Eq, Hash)]` would generate bounds on `T`
+// (`impl<T: Clone, ...> Clone for DomainId<T, V>`), even though `T` is a
+// zero-sized marker that holds no data and never participates in equality,
+// hashing or formatting. Those bounds are spurious: they force every marker
+// struct to derive traits it does not use, and the breakage only surfaces the
+// first time someone compares two IDs — typically inside a test.
+//
+// Implementing them manually keeps the bound on `V`, where the data actually
+// lives, so markers stay as plain `pub struct FooMarker;`.
+// ---------------------------------------------------------------------------
+
+impl<T, V: DomainIdValue> Clone for DomainId<T, V> {
+    fn clone(&self) -> Self {
+        Self { id: self.id.clone(), _marker: PhantomData }
+    }
+}
+
+impl<T, V: DomainIdValue> Debug for DomainId<T, V> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("DomainId").field(&self.id).finish()
+    }
+}
+
+impl<T, V: DomainIdValue> PartialEq for DomainId<T, V> {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+
+impl<T, V: DomainIdValue> Eq for DomainId<T, V> {}
+
+impl<T, V: DomainIdValue> Hash for DomainId<T, V> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.id.hash(state);
+    }
 }
 
 impl<T, V: DomainIdValue> DomainId<T, V> {

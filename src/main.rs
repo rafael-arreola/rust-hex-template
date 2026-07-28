@@ -3,13 +3,12 @@ pub mod domain;
 pub mod infrastructure;
 pub mod shared;
 
-use crate::application::{order::OrderService, product::ProductService, user::UserService};
-use crate::domain::port::{
-    order::OrderRepositoryPort, product::ProductRepositoryPort, user::UserRepositoryPort,
+use crate::application::{
+    demo_order::DemoOrderService, demo_product::DemoProductService, demo_user::DemoUserService,
 };
 use crate::infrastructure::driven::mongo::{
-    order::repository::OrderRepository, product::repository::ProductRepository,
-    provider::MongoProvider, user::repository::UserRepository,
+    demo_order::repository::DemoOrderRepository, demo_product::repository::DemoProductRepository,
+    demo_user::repository::DemoUserRepository, provider::MongoProvider,
 };
 #[allow(unused_imports)]
 use crate::infrastructure::driven::redis::RedisProvider;
@@ -73,39 +72,47 @@ async fn serve(env: &'static shared::config::Env) {
         Box::pin(async move { db.run_command(doc! { "ping": 1 }).await.is_ok() })
     });
 
-    let user_repo = Arc::new(UserRepository::new(&db));
-    let product_repo = Arc::new(ProductRepository::new(&db));
-    let order_repo = Arc::new(OrderRepository::new(&db));
+    // --- Repositories ---
+    // `new` is async and fallible because it also ensures the collection's
+    // indexes; there is no separate `create_indexes()` step to forget.
+    let demo_user_repo = match DemoUserRepository::new(&db).await {
+        Ok(repo) => Arc::new(repo),
+        Err(e) => {
+            tracing::error!("Failed to initialize DemoUserRepository: {}", e);
+            return;
+        }
+    };
+    let demo_product_repo = match DemoProductRepository::new(&db).await {
+        Ok(repo) => Arc::new(repo),
+        Err(e) => {
+            tracing::error!("Failed to initialize DemoProductRepository: {}", e);
+            return;
+        }
+    };
+    let demo_order_repo = match DemoOrderRepository::new(&db).await {
+        Ok(repo) => Arc::new(repo),
+        Err(e) => {
+            tracing::error!("Failed to initialize DemoOrderRepository: {}", e);
+            return;
+        }
+    };
 
-    tracing::info!("Creating database indexes...");
-    if let Err(e) = user_repo.create_indexes().await {
-        tracing::error!("Failed to create user indexes: {}", e);
-        return;
-    }
-    if let Err(e) = product_repo.create_indexes().await {
-        tracing::error!("Failed to create product indexes: {}", e);
-        return;
-    }
-    if let Err(e) = order_repo.create_indexes().await {
-        tracing::error!("Failed to create order indexes: {}", e);
-        return;
-    }
+    // --- Application services ---
+    // No `as Arc<dyn …Port>` casts: Rust coerces `Arc<Concrete>` to
+    // `Arc<dyn Trait>` on its own at the call site.
+    let demo_user_service = Arc::new(DemoUserService::new(demo_user_repo.clone()));
+    let demo_product_service = Arc::new(DemoProductService::new(demo_product_repo.clone()));
+    let demo_order_service =
+        Arc::new(DemoOrderService::new(demo_order_repo, demo_user_repo, demo_product_repo));
 
-    let user_service = Arc::new(UserService::new(user_repo.clone() as Arc<dyn UserRepositoryPort>));
-    let product_service =
-        Arc::new(ProductService::new(product_repo.clone() as Arc<dyn ProductRepositoryPort>));
-    let order_service = Arc::new(OrderService::new(
-        order_repo as Arc<dyn OrderRepositoryPort>,
-        user_repo as Arc<dyn UserRepositoryPort>,
-        product_repo as Arc<dyn ProductRepositoryPort>,
-    ));
-
-    let state = AppState { health_checker, user_service, product_service, order_service };
+    let state =
+        AppState { health_checker, demo_user_service, demo_product_service, demo_order_service };
 
     ServerLauncher::new(state)
         .with_cors_origins(env.cors_origins.clone())
         .with_http(env.port)
         .with_drain_timeout(env.drain_timeout_secs)
+        .with_request_timeout(env.request_timeout_secs)
         .with_msgpack(env.msgpack_enabled)
         .run()
         .await;

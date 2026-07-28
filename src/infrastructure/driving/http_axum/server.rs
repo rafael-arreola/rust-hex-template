@@ -35,6 +35,7 @@ pub struct ServerLauncher {
     http_port: Option<u16>,
     cors_origins: Option<String>,
     drain_timeout: Duration,
+    request_timeout: Duration,
     msgpack_enabled: bool,
 }
 
@@ -45,8 +46,16 @@ impl ServerLauncher {
             http_port: None,
             cors_origins: None,
             drain_timeout: Duration::from_secs(10),
+            request_timeout: Duration::from_secs(30),
             msgpack_enabled: true,
         }
+    }
+
+    /// Hard cap on how long a single request may take before the server
+    /// answers with `504` and the standard error envelope.
+    pub fn with_request_timeout(mut self, secs: u64) -> Self {
+        self.request_timeout = Duration::from_secs(secs);
+        self
     }
 
     /// Toggles `Accept: application/vnd.msgpack` content negotiation.
@@ -98,6 +107,12 @@ impl ServerLauncher {
             }
 
             let rest_router = rest_router
+                // Inside `trace_context` on purpose: a timed-out request must
+                // still be recorded on its span and echo its X-Request-Id.
+                .layer(axum::middleware::from_fn_with_state(
+                    self.request_timeout,
+                    middleware::request_timeout,
+                ))
                 .layer(axum::middleware::from_fn(middleware::trace_context))
                 .layer(CompressionLayer::new())
                 .layer(RequestDecompressionLayer::new())
@@ -229,6 +244,10 @@ async fn shutdown_signal(name: &str) {
         _ = terminate => {},
     }
 
+    // Flip readiness to 503 before the listener closes, so the load balancer
+    // drains us out of rotation instead of racing the shutdown.
+    health::start_draining();
+
     tracing::info!("Signal received, draining in-flight connections for {}...", name);
 }
 
@@ -314,6 +333,36 @@ mod tests {
         assert_eq!(entry["cause"], "INVALID_INPUT");
         assert!(entry["data"]["message"].is_string());
         assert!(entry.get("error").is_none(), "legacy `error` field must be gone");
+    }
+
+    #[tokio::test]
+    async fn slow_handler_times_out_with_the_standard_envelope() {
+        async fn never_answers() -> GenericApiResponse<()> {
+            tokio::time::sleep(Duration::from_secs(30)).await;
+            GenericApiResponse::success(())
+        }
+
+        let app = Router::new().route("/slow", get(never_answers)).layer(
+            axum::middleware::from_fn_with_state(
+                Duration::from_millis(50),
+                middleware::request_timeout,
+            ),
+        );
+
+        let request = HttpRequest::get("/slow").body(Body::empty()).unwrap();
+        let response = app.oneshot(request).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::GATEWAY_TIMEOUT);
+
+        let entry: serde_json::Value = serde_json::from_slice(&body_bytes(response).await).unwrap();
+        assert_eq!(entry["cause"], "TIMEOUT");
+        assert!(entry["trace_id"].is_string());
+
+        let message = entry["data"]["message"].as_str().unwrap();
+        assert!(
+            !message.contains("budget") && !message.contains("/slow"),
+            "the internal detail must stay in the log, not in the response: {message}"
+        );
     }
 
     #[tokio::test]

@@ -35,5 +35,5 @@ Para otros agentes (Cursor, Codex, Gemini CLI) los archivos funcionan como docum
 ## Reglas de mantenimiento
 
 - Si una invariante cambia, se cambia **primero** en `AGENTS.md` y después se propaga a las skills afectadas. Nunca al revés.
-- Las skills referencian archivos reales del template (`src/application/user.rs`, etc.) como ejemplo canónico; si esos archivos cambian de forma estructural, actualiza las skills en el mismo PR.
+- Las skills referencian archivos reales del template (`src/application/demo_user.rs`, etc.) como ejemplo canónico; si esos archivos cambian de forma estructural, actualiza las skills en el mismo PR.
 - Una skill nueva se agrega solo si describe un procedimiento repetible; las decisiones puntuales van en `AGENTS.md` o en un ADR.

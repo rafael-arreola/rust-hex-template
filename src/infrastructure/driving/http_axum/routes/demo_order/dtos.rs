@@ -1,13 +1,13 @@
-use crate::domain::entities::order::{Order, OrderId};
+use crate::domain::entities::demo_order::{DemoOrder, DemoOrderId};
 use serde::{Deserialize, Serialize};
 use validator::Validate;
 
 #[derive(Debug, Deserialize, Validate)]
-pub struct CreateOrderInput {
-    #[validate(length(equal = 24, message = "Invalid User ID format"))]
+pub struct CreateDemoOrderInput {
+    #[validate(length(equal = 24, message = "Invalid DemoUser ID format"))]
     pub user_id: String,
 
-    #[validate(length(equal = 24, message = "Invalid Product ID format"))]
+    #[validate(length(equal = 24, message = "Invalid DemoProduct ID format"))]
     pub product_id: String,
 
     #[validate(range(min = 1, message = "Quantity must be at least 1"))]
@@ -15,7 +15,7 @@ pub struct CreateOrderInput {
 }
 
 #[derive(Serialize)]
-pub struct OrderOutput {
+pub struct DemoOrderOutput {
     pub id: String,
     pub user_id: String,
     pub product_id: String,
@@ -25,10 +25,10 @@ pub struct OrderOutput {
     pub updated_at: String,
 }
 
-impl From<Order> for OrderOutput {
-    fn from(order: Order) -> Self {
+impl From<DemoOrder> for DemoOrderOutput {
+    fn from(order: DemoOrder) -> Self {
         Self {
-            id: order.id.map(|id: OrderId| id.into_inner()).unwrap_or_default(),
+            id: order.id.map(|id: DemoOrderId| id.into_inner()).unwrap_or_default(),
             user_id: order.user_id.into_inner(),
             product_id: order.product_id.into_inner(),
             quantity: order.quantity,

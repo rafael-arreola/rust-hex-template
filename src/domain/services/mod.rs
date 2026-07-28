@@ -1,1 +1,1 @@
-pub mod pricing;
+pub mod demo_pricing;

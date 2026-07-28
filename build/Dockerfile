@@ -39,6 +39,11 @@ COPY . .
 
 RUN cargo build --release
 
+# Deploy gate: no image exists if the suite is red, so a broken build cannot
+# reach Cloud Run even through a manual deploy that bypasses GitHub Actions.
+# `--release` reuses the artifacts just built instead of recompiling in debug.
+RUN cargo test --release --all-targets
+
 RUN strip -s /app/target/release/service
 
 ####################################################################################################

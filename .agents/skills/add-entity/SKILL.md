@@ -75,7 +75,7 @@ Reglas: `#[async_trait]` + `Send + Sync` siempre; firmas solo con tipos de domin
 
 ## 3. Servicio de aplicación — `src/application/invoice.rs`
 
-Sigue el template de `src/application/user.rs` (ejemplo canónico). Esqueleto:
+Sigue el template de `src/application/demo_user.rs` (ejemplo canónico). Esqueleto:
 
 ```rust
 use crate::domain::entities::invoice::{Invoice, InvoiceId};
@@ -133,7 +133,7 @@ pub mod repository;
 
 ### `mongo/invoice/model.rs`
 
-Copia el patrón de `src/infrastructure/driven/mongo/user/model.rs`:
+Copia el patrón de `src/infrastructure/driven/mongo/demo_user/model.rs`:
 
 - `#[serde(rename_all = "snake_case")]` en el struct; el único rename de campo permitido es `_id`.
 - `From<Invoice> for InvoiceModel` y `From<InvoiceModel> for Invoice` — **nunca `TryFrom`**. IDs inválidos se manejan en silencio (`ObjectId::parse_str(..).ok()` / `.unwrap_or_default()`).
@@ -145,7 +145,21 @@ Copia el patrón de `src/infrastructure/driven/mongo/user/model.rs`:
 Copia el patrón de `user/repository.rs`. Puntos que el audit revisa:
 
 - Colección plural snake_case: `db.collection::<InvoiceModel>("invoices")`.
-- `create_indexes()` idempotente, con nombres explícitos de índice; siempre incluye el compuesto `{ deleted_at: 1, created_at: -1 }` para listados.
+- **`new` es `async` y falible, y crea los índices adentro** — así "los índices existen" es una propiedad del tipo, no un paso de wiring que se puede olvidar. `create_indexes` queda **privado**:
+
+  ```rust
+  impl InvoiceRepository {
+      pub async fn new(db: &Database) -> DomainResult<Self> {
+          let repo = Self { collection: db.collection::<InvoiceModel>("invoices") };
+          repo.create_indexes().await?;
+          Ok(repo)
+      }
+
+      async fn create_indexes(&self) -> DomainResult<()> { /* ... */ }
+  }
+  ```
+
+- `create_indexes()` idempotente, con nombres explícitos de índice; siempre incluye el compuesto `{ deleted_at: 1, created_at: -1 }` para listados. Para colecciones efímeras, índice TTL con `IndexOptions::builder().expire_after(Duration::from_secs(...))` en vez de un job de limpieza.
 - **Toda** query (`find_one`, `find`, `update_one`, `count_documents`) filtra `doc! { "deleted_at": { "$exists": false } }`.
 - `delete` = `$set { deleted_at: now }`; jamás `delete_one`/`delete_many`.
 - Todo error del driver se mapea: `.map_err(|e| DomainError::database(e.to_string()))`; ObjectId mal formado → `DomainError::invalid_param("id", "Invoice", &**id)`.
@@ -179,18 +193,23 @@ impl_from_ref!(AppState, invoice_service, InvoiceService);
 `src/main.rs`, dentro de `serve()` (mismo patrón fail-fast que las demás — el early return es seguro, el flush del tracer vive en `main`):
 
 ```rust
-let invoice_repo = Arc::new(InvoiceRepository::new(&db));
+// `new` ya crea los índices: no hay bloque create_indexes() aparte.
+let invoice_repo = match InvoiceRepository::new(&db).await {
+    Ok(repo) => Arc::new(repo),
+    Err(e) => {
+        tracing::error!("Failed to initialize InvoiceRepository: {}", e);
+        return;
+    }
+};
 
-if let Err(e) = invoice_repo.create_indexes().await {
-    tracing::error!("Failed to create invoice indexes: {}", e);
-    return;
-}
-
-let invoice_service =
-    Arc::new(InvoiceService::new(invoice_repo as Arc<dyn InvoiceRepositoryPort>));
+// Sin cast explícito: Rust coacciona Arc<Concrete> a Arc<dyn Trait> solo.
+let invoice_service = Arc::new(InvoiceService::new(invoice_repo));
 
 let state = AppState { /* ...campos existentes..., */ invoice_service };
 ```
+
+> Nunca escribas `invoice_repo as Arc<dyn InvoiceRepositoryPort>`: es ruido que
+> además arrastra el trait del port a los imports de `main.rs` sin necesidad.
 
 ## 7. Verificación
 
@@ -205,6 +224,7 @@ let state = AppState { /* ...campos existentes..., */ invoice_service };
 - [ ] Archivos singulares; colección y ruta plurales.
 - [ ] 5 routers de módulo actualizados: `entities.rs`, `port.rs`, `application.rs`, `mongo.rs`, `routes.rs` — y ninguno usa `mod.rs`.
 - [ ] `AppState` + `impl_from_ref!` + wiring en `main.rs` con fail-fast.
+- [ ] `Repository::new` es `async`/falible y crea los índices; `create_indexes` privado. Cero llamadas a `create_indexes()` y cero `as Arc<dyn ...>` en `main.rs`.
 - [ ] `deleted_at` filtrado en TODAS las queries del repositorio.
 - [ ] Sin `unwrap()`/`expect()` fuera de tests (clippy lo niega en build).
 - [ ] Dependencias nuevas (si las hubo) ordenadas con `cargo sort --grouped`.

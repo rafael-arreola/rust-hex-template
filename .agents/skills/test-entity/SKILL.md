@@ -15,32 +15,32 @@ Convenciones:
 
 ## 1. Fake del puerto (en memoria)
 
-Al final de `src/application/user.rs`:
+Al final de `src/application/demo_user.rs`:
 
 ```rust
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::entities::user::User;
+    use crate::domain::entities::demo_user::DemoUser;
     use std::sync::Mutex;
 
     #[derive(Default)]
-    struct FakeUserRepository {
-        users: Mutex<Vec<User>>,
+    struct FakeDemoUserRepository {
+        users: Mutex<Vec<DemoUser>>,
     }
 
     #[async_trait::async_trait]
-    impl UserRepositoryPort for FakeUserRepository {
-        async fn create(&self, user: &User) -> DomainResult<UserId> {
+    impl DemoUserRepositoryPort for FakeDemoUserRepository {
+        async fn create(&self, user: &DemoUser) -> DomainResult<DemoUserId> {
             let mut users = self.users.lock().unwrap();
-            let id = UserId::new(format!("{:024x}", users.len() + 1));
+            let id = DemoUserId::new(format!("{:024x}", users.len() + 1));
             let mut stored = user.clone();
             stored.id = Some(id.clone());
             users.push(stored);
             Ok(id)
         }
 
-        async fn find_by_id(&self, id: &UserId) -> DomainResult<Option<User>> {
+        async fn find_by_id(&self, id: &DemoUserId) -> DomainResult<Option<DemoUser>> {
             Ok(self
                 .users
                 .lock()
@@ -50,7 +50,7 @@ mod tests {
                 .cloned())
         }
 
-        async fn find_by_email(&self, email: &str) -> DomainResult<Option<User>> {
+        async fn find_by_email(&self, email: &str) -> DomainResult<Option<DemoUser>> {
             Ok(self
                 .users
                 .lock()
@@ -60,11 +60,11 @@ mod tests {
                 .cloned())
         }
 
-        async fn find_all(&self, _pagination: Pagination) -> DomainResult<Vec<User>> {
+        async fn find_all(&self, _pagination: Pagination) -> DomainResult<Vec<DemoUser>> {
             Ok(self.users.lock().unwrap().iter().filter(|u| !u.is_deleted()).cloned().collect())
         }
 
-        async fn update(&self, id: &UserId, user: &User) -> DomainResult<bool> {
+        async fn update(&self, id: &DemoUserId, user: &DemoUser) -> DomainResult<bool> {
             let mut users = self.users.lock().unwrap();
             match users.iter_mut().find(|u| u.id.as_ref() == Some(id) && !u.is_deleted()) {
                 Some(existing) => {
@@ -76,7 +76,7 @@ mod tests {
             }
         }
 
-        async fn delete(&self, id: &UserId) -> DomainResult<bool> {
+        async fn delete(&self, id: &DemoUserId) -> DomainResult<bool> {
             let mut users = self.users.lock().unwrap();
             match users.iter_mut().find(|u| u.id.as_ref() == Some(id) && !u.is_deleted()) {
                 Some(user) => {
@@ -92,8 +92,8 @@ mod tests {
         }
     }
 
-    fn service() -> UserService {
-        UserService::new(Arc::new(FakeUserRepository::default()))
+    fn service() -> DemoUserService {
+        DemoUserService::new(Arc::new(FakeDemoUserRepository::default()))
     }
 ```
 
@@ -121,7 +121,7 @@ Caso feliz, cada regla semántica, y cada `DomainError` esperado **por su `code(
 
     #[tokio::test]
     async fn get_user_maps_missing_to_not_found() {
-        let err = service().get_user(&UserId::new("ffffffffffffffffffffffff")).await.unwrap_err();
+        let err = service().get_user(&DemoUserId::new("ffffffffffffffffffffffff")).await.unwrap_err();
         assert_eq!(err.code(), "NOT_FOUND");
     }
 
@@ -137,7 +137,7 @@ Caso feliz, cada regla semántica, y cada `DomainError` esperado **por su `code(
 }
 ```
 
-Para services con varios puertos (`OrderService`), crea un fake por puerto y testea las reglas cruzadas (stock insuficiente → `BUSINESS_RULE_VIOLATION`, usuario inexistente → `NOT_FOUND`).
+Para services con varios puertos (`DemoOrderService`), crea un fake por puerto y testea las reglas cruzadas (stock insuficiente → `BUSINESS_RULE_VIOLATION`, usuario inexistente → `NOT_FOUND`).
 
 Los tests canónicos del contrato de errores viven en `src/domain/error.rs` (`mod tests`): separación vista pública/interna (`public_message()` vs `Display`) y severidad por variante. Si agregas una variante a `DomainError`, extiende esos tests — en particular `infrastructure_detail_never_leaks_into_public_message` si la variante carga detalle de infraestructura.
 

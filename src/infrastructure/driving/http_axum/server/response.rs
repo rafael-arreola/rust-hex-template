@@ -35,7 +35,7 @@ pub struct ErrorDetail {
 ///
 /// ```json
 /// { "trace_id": "4bf9…", "data": { "id": "u1", "name": "Ada" } }
-/// { "trace_id": "4bf9…", "data": { "message": "User not found: u9" }, "cause": "NOT_FOUND" }
+/// { "trace_id": "4bf9…", "data": { "message": "DemoUser not found: u9" }, "cause": "NOT_FOUND" }
 /// ```
 #[derive(Debug, Serialize)]
 pub struct GenericApiResponse<T> {
