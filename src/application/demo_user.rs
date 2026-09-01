@@ -94,7 +94,7 @@ impl DemoUserService {
 }
 
 // ---------------------------------------------------------------------------
-// Canonical example of the testing seam described in `.agents/skills/test-entity`.
+// Canonical example of the testing seam described in `AGENTS.md` (Directiva 5).
 //
 // The port (`Arc<dyn DemoUserRepositoryPort>`) is what makes this possible: an
 // in-memory fake exercises the whole application service with no Mongo, no

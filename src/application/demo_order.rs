@@ -160,7 +160,7 @@ impl DemoOrderService {
 
 // ---------------------------------------------------------------------------
 // Cross-entity testing: one fake per port, as described in
-// `.agents/skills/test-entity`. This is the service that orchestrates three
+// `AGENTS.md` (Directiva 5). This is the service that orchestrates three
 // repositories, so it is also where the interesting failure modes live —
 // overselling and lost stock after a partial failure.
 // ---------------------------------------------------------------------------

@@ -1,7 +1,7 @@
-# Ejecuta el mismo gate que `.agents/skills/quality-gate`, pero como puerta
-# obligatoria en vez de convención: lo que AGENTS.md exige, aquí se verifica.
+# Ejecuta la secuencia estricta del Quality Gate estipulada en AGENTS.md (Directiva 7):
+# lo que AGENTS.md exige, aquí se verifica.
 #
-# El orden es el del skill — de más barato a más caro — para que un fallo de
+# El orden es el de la directiva — de más barato a más caro — para que un fallo de
 # formato no gaste minutos de compilación.
 name: CI
 

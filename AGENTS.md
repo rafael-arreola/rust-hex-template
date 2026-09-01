@@ -1,278 +1,169 @@
-# AGENTS.md — Constitution of this template
+# Memoria de Arquitectura — Rust Hexagonal Template
 
-This file is the **source of truth for invariants**: what must always be true of
-the code, and why. It is loaded into every agent session, so it stays dense.
-
-Step-by-step _procedures_ do not live here — they live in `.agents/skills/`.
-This document tells you the rules; the skills tell you the moves.
-
-## How to work in this repo
-
-1. **Route the task** through the table below. If a skill covers it, follow the
-   skill — it already encodes the file list and the registration points people
-   forget.
-2. **Write code in dependency order**: `domain` → `application` →
-   `driven/mongo` → `driving/http_axum` → `main.rs`. This order compiles on the
-   first try; any other order does not.
-3. **Close with the quality gate** (§7). Work is not done until it is green.
-4. **Do not re-derive these rules per task.** If a rule is missing here, that is
-   a gap in this file — say so and propose the addition, rather than inventing a
-   local convention.
-
-### Task router
-
-| You are asked to…                                 | Follow                              | Read first                 |
-| ------------------------------------------------- | ----------------------------------- | -------------------------- |
-| Add an entity / aggregate / CRUD resource         | `.agents/skills/add-entity`         | §3 templates, §4.7 wiring  |
-| Add an endpoint / use case to an existing entity  | `.agents/skills/add-endpoint`       | §3.3 service, §3.6 handler |
-| Add pure business logic (no I/O)                  | `.agents/skills/add-domain-service` | §3.4                       |
-| Integrate an external HTTP service or Redis cache | `.agents/skills/add-driven-adapter` | §4.6 timeouts, §4.1 errors |
-| Write tests                                       | `.agents/skills/test-entity`        | §6                         |
-| Verify the code respects the invariants           | `.agents/skills/architecture-audit` | §2                         |
-| Verify before committing                          | `.agents/skills/quality-gate`       | §7                         |
-| Something not covered above                       | This file, then ask                 | —                          |
-
-> **Skill discovery.** Claude Code loads skills from `.claude/skills/`. That path
-> is a symlink to `.agents/skills` and is **not tracked by git**, so a fresh
-> clone has no auto-discovery until you recreate it:
-> `ln -s ../.agents/skills .claude/skills`. Without it the skills still work as
-> plain documentation — read the `SKILL.md` directly.
-
-### When to stop and ask
-
-Ask before: changing a `DomainError` variant or its `code()` (it is a public API
-contract), changing the response envelope, adding a dependency that duplicates
-one already present, or relaxing anything in §2. Everything else: decide, state
-the decision in one line, and proceed.
+```
+[ driving: axum 0.8 ] ──> [ application: use-cases ] ──> [ domain: core ] <── [ driven: mongo 3.8 / redis 1 ]
+                                 │
+                                 └──> [ shared: config / tracer / http_client ]
+```
 
 ---
 
-# 1. Orientation
+## 1. Ontología y Taxonomía del Sistema
 
-## 1.1 Demo code vs. template
+### 1.1 Stack Tecnológico y Dependencias Fijadas
 
-The repo ships three example entities — `DemoUser`, `DemoProduct`, `DemoOrder` —
-plus `DemoPricingService`. The `Demo` prefix means exactly one thing: **this is
-disposable reference code, delete it when starting a real service.** Removal
-steps are at the top of `README.md`.
+- **Rust**: Edición 2024 (soporte activo de let-chains: `if let … && let …`).
+- **Paquete Cargo**: Crate único binario llamado `service` (`src/main.rs`).
+- **HTTP / Runtime Asíncrono**: `axum 0.8`, `tokio 1` (full), `tower-http 0.7` (cors, compression-gzip, decompression-gzip).
+- **Persistencia**: `mongodb 3.8` (bson-3, rustls-tls, dns-resolver, opentelemetry), `bson 3`, `redis 1` (aio, tokio-comp).
+- **Observabilidad**: `opentelemetry` / `opentelemetry_sdk` / `opentelemetry-semantic-conventions` **0.32**, `tracing-opentelemetry 0.33`, `opentelemetry-gcloud-trace 0.24`, `tracing 0.1`, `tracing-subscriber 0.3`.
+- **HTTP Saliente**: `reqwest 0.13` (rustls, http2, json), `reqwest-middleware 0.5`, `reqwest-tracing 0.7` (`opentelemetry_0_32`).
+- **Serialización**: `serde 1`, `serde_json 1`, `rmp-serde 1.3` (MessagePack), `erased-serde 0.4`.
+- **Validación**: `validator 0.20` (derive).
+- **Errores y Utilidades**: `thiserror 2`, `anyhow 1` (restringido a bootstrap de tracer en `shared/tracer.rs`), `uuid 1` (v7), `chrono 0.4`, `dotenvy`, `futures`, `rustls 0.23`.
+- **Testing**: `tower 0.5` (util, `ServiceExt::oneshot`).
 
-Everything without the prefix is the template proper and stays: `DomainError`,
-`DomainId`, `Pagination`, `GenericApiResponse`, `ValidatedBody`, the
-middlewares, the tracer, config and the health endpoints.
+> **Restricción OpenTelemetry**: `mongodb 3.8` depende internamente de `opentelemetry 0.31`. La aplicación utiliza `0.32`. No se admite registrar un segundo provider.
 
-Naming examples in this document (`User`, `UserRepositoryPort`,
-`CreateUserInput`…) describe the convention for a **real** entity and therefore
-carry no prefix. Do not prefix your own entities with `Demo`.
+### 1.2 Clasificación y Semántica de Símbolos
 
-Two prefixes, two meanings — do not mix them:
+- **Prefijo `Demo*`**: Entidades y servicios de referencia descartables (`DemoUser`, `DemoProduct`, `DemoOrder`, `DemoPricingService`). Se eliminan al inicializar un servicio productivo.
+- **Prefijo `Fake*`**: Dobles de prueba en memoria sobre puertos de dominio (`FakeDemoUserRepository`). Permanentes en suites de test.
+- **Símbolos de Producción**: Nombres directos en singular sin prefijos tecnológicos ni de dominio (`User`, `Order`, `UserRepositoryPort`, `CreateUserInput`, `UserModel`, `UserRepository`).
 
-- `Demo*` → disposable reference code. Delete it.
-- `Fake*` → in-memory test double over a port (`FakeDemoUserRepository`). A
-  testing device that stays.
+### 1.3 Taxonomía de Archivos y Responsabilidades
 
-## 1.2 Stack — authoritative versions
-
-Single Cargo package named `service`, **Rust edition 2024** (let-chains,
-`if let … && let …`, are in use — do not "fix" them into nested `if`s).
-
-| Area          | Crates (pinned in `Cargo.toml`)                                                                                                                                                                 |
-| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| HTTP / async  | `axum 0.8`, `tokio 1` (full), `tower-http 0.7` (cors, compression-gzip, decompression-gzip)                                                                                                     |
-| Databases     | `mongodb 3.8` (bson-3, rustls-tls, dns-resolver, opentelemetry), `bson 3`, `redis 1` (aio, tokio-comp)                                                                                          |
-| Observability | `opentelemetry` / `opentelemetry_sdk` / `opentelemetry-semantic-conventions` **0.32**, `tracing-opentelemetry 0.33`, `opentelemetry-gcloud-trace 0.24`, `tracing 0.1`, `tracing-subscriber 0.3` |
-| Outbound HTTP | `reqwest 0.13` (rustls, http2, json), `reqwest-middleware 0.5`, `reqwest-tracing 0.7` (`opentelemetry_0_32`)                                                                                    |
-| Serialization | `serde 1`, `serde_json 1`, `rmp-serde 1.3` (MessagePack), `erased-serde 0.4` (deferred encoding)                                                                                                |
-| Validation    | `validator 0.20` (derive)                                                                                                                                                                       |
-| Errors / misc | `thiserror 2`, `anyhow 1` (**tracer bootstrap only**), `uuid 1` (v7), `chrono 0.4`, `dotenvy`, `futures`, `rustls 0.23`                                                                         |
-| Dev only      | `tower 0.5` (util) — drives the router from `#[cfg(test)]` via `ServiceExt::oneshot`                                                                                                            |
-
-`anyhow` is confined to `shared/tracer.rs`, where there is no domain yet.
-Everywhere else the error type is `DomainError` (§4.1).
-
-Release profile is tuned (`lto = "thin"`, `strip = true`, `opt-level = 3`) and
-the dev profile compiles dependencies at `opt-level = 3` for a usable debug
-build. Do not change these to "speed up CI" without measuring.
-
-> ### ⚠ Known drift — OpenTelemetry is currently split
->
-> `mongodb 3.8` depends on **`opentelemetry 0.31`**, while the application and
-> every other telemetry crate are on **0.32**. Both are in
-> `Cargo.lock`. The two versions are distinct crates with distinct global
-> registries, so the tracer provider registered by `shared/tracer.rs` (0.32)
-> does **not** reach the driver's 0.31 global — MongoDB command spans do not
-> join the request trace today.
->
-> Detect it:
->
-> ```bash
-> cargo tree -i opentelemetry@0.31.0   # expected: nothing
-> ```
->
-> **Bumping the driver does not fix it** — `3.4` → `3.8` was tried and `3.8`
-> still requires 0.31. The two real options are to pin the app's telemetry
-> stack down to 0.31 (`opentelemetry`, `opentelemetry_sdk`,
-> `opentelemetry-semantic-conventions`, a `tracing-opentelemetry` release
-> matching 0.31, and the `reqwest-tracing` feature `opentelemetry_0_31` —
-> check `opentelemetry-gcloud-trace` has a compatible release first), or wait
-> for a driver on 0.32. Never paper over it with a second provider. See §4.5
-> for why alignment is mandatory.
-
-## 1.3 Repository map
-
-Module routers use the modern Rust convention: when a directory `foo/` has
-submodules, the parent module is `foo.rs` **next to** the directory, not
-`foo/mod.rs`. Every new file is registered with `pub mod` in its parent router;
-the top-level routers are declared in `main.rs` (this crate has a `main.rs`, no
-`lib.rs`).
-
-The two surviving `mod.rs` files — `src/domain/services/mod.rs` and
-`src/application/shared/mod.rs` — are grandfathered. Do not add new ones.
+Estructura de módulos según la convención de Rust donde el módulo padre `foo.rs` coexiste junto al directorio `foo/` (sin archivos `mod.rs`, salvo los preexistentes `src/domain/services/mod.rs` y `src/application/shared/mod.rs`):
 
 ```
-AGENTS.md                                        → this file (CLAUDE.md and GEMINI.md are symlinks to it)
-README.md                                        → human onboarding + demo-removal steps
-.agents/README.md                                → skill index and maintenance rules
-.agents/skills/<name>/SKILL.md                   → operating procedures (see task router)
-.github/workflows/ci.yml                         → the quality gate, enforced (§7)
-build/Dockerfile, build/cloudbuild.yaml          → container image & GCP build
-.env.example                                     → the full environment contract (§5)
-rustfmt.toml, clippy.toml                        → style, enforced at build time (§7)
-Cargo.toml                                       → single package + [lints.clippy] denies
+AGENTS.md                                              Constitución y memoria de arquitectura
+CLAUDE.md / GEMINI.md                                  Symlinks canónicos a AGENTS.md
+Cargo.toml                                             Configuración de paquete, dependencias y [lints.clippy]
+build/Dockerfile, build/cloudbuild.yaml                Empaquetado y despliegue en GCP
+.env.example                                           Esquema contractual de variables de entorno
 
-src/main.rs                                      → module routers + Composition Root (`main` orchestrates, `serve` holds the body)
+src/main.rs                                            Composition Root: inicialización fail-fast, tracer flush y servidor
 
-src/domain.rs                                    → domain router
-src/domain/entities.rs                           → entity router
-src/domain/entities/{entity}.rs                  → entity struct + marker + typed ID
-src/domain/port.rs                               → port router
-src/domain/port/{entity}.rs                      → trait {Entity}RepositoryPort
-src/domain/services/mod.rs                       → domain-service router
-src/domain/services/{service}.rs                 → pure business logic (no I/O, no deps)
-src/domain/error.rs                              → DomainError + ErrorSeverity + DomainResult<T>
-src/domain/values.rs                             → DomainId<T, V> + DomainIdValue
-src/domain/pagination.rs                         → Pagination
-src/domain/macros.rs                             → macro router
-src/domain/macros/json.rs                        → as_json! (exported at crate root — see §4.5)
+src/domain.rs                                          Enrutador del núcleo de dominio
+src/domain/entities.rs                                 Enrutador de entidades
+src/domain/entities/{entity}.rs                        Struct de entidad + marker de tipo + alias DomainId
+src/domain/port.rs                                     Enrutador de puertos de repositorio y servicios
+src/domain/port/{entity}.rs                            Trait {Entity}RepositoryPort (Send + Sync + async_trait)
+src/domain/services/mod.rs                             Enrutador de servicios de dominio
+src/domain/services/{service}.rs                       Lógica de negocio pura (stateless, determinista, cero I/O)
+src/domain/error.rs                                    DomainError + ErrorSeverity + DomainResult<T>
+src/domain/values.rs                                   Typed ID: DomainId<T, V = String> + DomainIdValue
+src/domain/pagination.rs                               Estructura Pagination (skip, limit, page)
+src/domain/macros.rs                                   Enrutador de macros
+src/domain/macros/json.rs                              Macro as_json! exportada en crate root (crate::as_json)
 
-src/application.rs                               → application router
-src/application/{entity}.rs                      → {Entity}Service (use-case orchestration)
-src/application/shared/mod.rs                    → reusable sub-flows WITH I/O
+src/application.rs                                     Enrutador de servicios de aplicación
+src/application/{entity}.rs                            {Entity}Service: orquestación de casos de uso y validación semántica
+src/application/shared/mod.rs                          Sub-flujos reutilizables con I/O
 
-src/shared.rs                                    → shared-capabilities router
-src/shared/config.rs                             → Env, loaded once into a OnceLock
-src/shared/http_client.rs                        → instrumented reqwest client + timeout budgets
-src/shared/tracer.rs                             → OpenTelemetry + tracing setup, TracerGuard
-src/shared/tracer/format.rs                      → GCP Cloud Logging JSON event formatter
+src/shared.rs                                          Enrutador de capacidades transversales
+src/shared/config.rs                                   Struct Env cargado en OnceLock (fail-fast en arranque)
+src/shared/http_client.rs                              Cliente reqwest instrumentado con tracing y presupuestos de timeout
+src/shared/tracer.rs                                   Inicialización de OpenTelemetry, GCP Cloud Trace y TracerGuard
+src/shared/tracer/format.rs                            Formateador JSON estructurado para GCP Cloud Logging
 
-src/infrastructure.rs                            → infrastructure router
-src/infrastructure/driven.rs                     → driven-adapter router
-src/infrastructure/driven/mongo.rs               → Mongo router
-src/infrastructure/driven/mongo/provider.rs      → MongoProvider (connect, ping, otel opt-in)
-src/infrastructure/driven/mongo/{entity}.rs      → per-entity router
-src/infrastructure/driven/mongo/{entity}/model.rs      → {Entity}Model (BSON/serde)
-src/infrastructure/driven/mongo/{entity}/repository.rs → {Entity}Repository + create_indexes
-src/infrastructure/driven/redis.rs               → RedisProvider (wired but disabled — §5)
+src/infrastructure.rs                                  Enrutador de adaptadores
+src/infrastructure/driven.rs                           Enrutador de adaptadores conducidos (driven)
+src/infrastructure/driven/mongo.rs                     Enrutador MongoDB
+src/infrastructure/driven/mongo/provider.rs            MongoProvider (pool de conexiones, health ping, otel)
+src/infrastructure/driven/mongo/{entity}.rs            Enrutador del adaptador de entidad
+src/infrastructure/driven/mongo/{entity}/model.rs      {Entity}Model: esquema BSON / Serde con From bidireccional
+src/infrastructure/driven/mongo/{entity}/repository.rs {Entity}Repository: new() asíncrono con create_indexes() privado
+src/infrastructure/driven/redis.rs                     RedisProvider (conexión multiplexada, paths de claves, ping)
 
-src/infrastructure/driving.rs                    → driving-adapter router
-src/infrastructure/driving/http_axum.rs          → HTTP adaptor router (re-exports ServerLauncher, AppState)
-src/infrastructure/driving/http_axum/routes.rs                → app_router(): nests every entity router
-src/infrastructure/driving/http_axum/routes/{entity}.rs       → router() + Axum handlers + query structs
-src/infrastructure/driving/http_axum/routes/{entity}/dtos.rs  → *Input / *Output DTOs
-src/infrastructure/driving/http_axum/server.rs                → ServerLauncher, layer stack, msgpack middleware
-src/infrastructure/driving/http_axum/server/error.rs          → ApiError + the single error-log choke point
-src/infrastructure/driving/http_axum/server/health.rs         → /healthz, /readyz, drain flag
-src/infrastructure/driving/http_axum/server/middleware.rs     → trace_context, request_timeout
-src/infrastructure/driving/http_axum/server/response.rs       → GenericApiResponse, GenericPagination, NegotiablePayload
-src/infrastructure/driving/http_axum/server/state.rs          → AppState + FromRef wiring
-src/infrastructure/driving/http_axum/server/validation.rs     → ValidatedBody extractor
+src/infrastructure/driving.rs                          Enrutador de adaptadores conductores (driving)
+src/infrastructure/driving/http_axum.rs                Enrutador HTTP Axum (ServerLauncher, AppState)
+src/infrastructure/driving/http_axum/routes.rs         app_router(): anidamiento de routers de entidades
+src/infrastructure/driving/http_axum/routes/{entity}.rs      router() + handlers Axum (5 pasos inmutables)
+src/infrastructure/driving/http_axum/routes/{entity}/dtos.rs DTOs: *Input (Validate) y *Output (From<Entity>)
+src/infrastructure/driving/http_axum/server.rs         ServerLauncher: ensamblado y ejecución de middlewares
+src/infrastructure/driving/http_axum/server/error.rs   ApiError: choke-point único de logging estructurado
+src/infrastructure/driving/http_axum/server/health.rs  Endpoints /healthz, /readyz y señal atómica de drenado
+src/infrastructure/driving/http_axum/server/middleware.rs   trace_context (W3C/GCP) y request_timeout (504)
+src/infrastructure/driving/http_axum/server/response.rs     GenericApiResponse, GenericPagination, NegotiablePayload
+src/infrastructure/driving/http_axum/server/state.rs   AppState + macros de inyección impl_from_ref!
+src/infrastructure/driving/http_axum/server/validation.rs   Extractor ValidatedBody (JSON y MessagePack)
 ```
-
-There is no `tests/` directory: tests live in `#[cfg(test)] mod tests` next to
-the code they cover (§6).
 
 ---
 
-# 2. Invariants
+## 2. Fronteras y Matrices de Visibilidad de Tipos
 
-Non-negotiable. They exist so the codebase stays predictable across entities and
-contributors. `.agents/skills/architecture-audit` turns most of them into
-executable greps.
+### 2.1 Matriz de Imports Permitidos y Prohibidos
 
-## 2.1 Layer dependencies
+Dirección vectorial estricta:
+$$\text{driving/http\_axum} \longrightarrow \text{application} \longrightarrow \text{domain} \longleftarrow \text{infrastructure::driven}$$
 
-```
-driving/http_axum ──> application ──> domain <── driven/mongo, driven/redis
-```
+| Capa                      | Imports Autorizados                                                        | Imports Denegados                               |
+| :------------------------ | :------------------------------------------------------------------------- | :---------------------------------------------- |
+| `domain`                  | `crate::domain`, crates std/externos base (`serde`, `chrono`, `thiserror`) | Todo módulo fuera de `domain`                   |
+| `application`             | `domain`, `shared`                                                         | `infrastructure::*` (tanto driving como driven) |
+| `infrastructure::driven`  | `domain`, `shared`                                                         | `application`, `infrastructure::driving`        |
+| `infrastructure::driving` | `domain`, `application`, crates externos                                   | `infrastructure::driven`, `shared::config`      |
+| `shared`                  | Crates externos exclusivamente                                             | `domain`, `application`, `infrastructure`       |
 
-| Module                    | May import                                                 | Must never import                            |
-| ------------------------- | ---------------------------------------------------------- | -------------------------------------------- |
-| `domain`                  | Nothing outside itself (plus `serde`/`chrono`/`thiserror`) | Every other local module                     |
-| `application`             | `domain`, `shared`                                         | `infrastructure::*` (driven **and** driving) |
-| `infrastructure::driven`  | `domain`, `shared`                                         | `application`, `infrastructure::driving`     |
-| `infrastructure::driving` | `domain`, `application`, framework/observability deps      | `infrastructure::driven`, `shared::config`   |
-| `shared`                  | External crates only                                       | `domain`, `application`, `infrastructure`    |
+### 2.2 Fronteras de Tipos de Datos
 
-The driving layer imports the **concrete** `{Entity}Service`, not a trait — the
-inversion happens at the port, between application and driven.
+- **Tipos Universales que cruzan capas**: Primitivos (`String`, `i32`, `bool`, `f64`), `chrono::DateTime<Utc>`, entidades y enums de dominio, IDs tipados `DomainId`, `Pagination`, `DomainError`.
+- **Tipos Confinados (Prohibido cruzar fronteras)**:
+  - DTOs (`*Input`, `*Output`): Confinados a `infrastructure/driving/http_axum`.
+  - Modelos de base de datos (`*Model`): Confinados a `infrastructure/driven/mongo`.
+  - Tipos de drivers (`bson::ObjectId`, `mongodb::*`, `redis::*`): Confinados a sus adaptadores driven.
+  - Tipos del framework web (`axum::*`, `http::StatusCode`): Confinados a `infrastructure/driving/http_axum`.
 
-Config is read once in `main.rs` and passed down as values; adapters never call
-`config::get()` themselves.
+### 2.3 Reglas de Nomenclatura del Código
 
-## 2.2 What may cross a module boundary
+- **Archivos y Directorios**: Singular en snake_case (`user.rs`, `order_item/`, `invoice.rs`).
+- **Estructuras de Entidad**: PascalCase en singular (`User`, `Product`, `Invoice`).
+- **Traits de Puerto**: `{Entity}RepositoryPort` (`UserRepositoryPort`).
+- **Repositorios Concretos**: `{Entity}Repository` sin prefijos de tecnología (`UserRepository`, no `MongoUserRepository`).
+- **Colecciones de Base de Datos**: Plural en snake_case (`users`, `order_items`, `invoices`).
+- **Campos en BSON**: snake_case estricto (`created_at`, `total_amount`).
+- **Rutas HTTP**: Plural (`/api/v1/users`, `/api/v1/invoices`).
+- **DTOs**: Sufijos exclusivos `*Input` y `*Output` (`CreateInvoiceInput`, `InvoiceOutput`).
+- **Índices MongoDB**: Nombre explícito con sufijo `*_idx` (`email_unique_idx`, `deleted_created_compound_idx`).
+- **Variables y Campos**: Palabras completas sin abreviaturas (`user_email`, `page_number`, no `usr`, `idx`).
 
-✅ Primitives (`String`, `i32`, `bool`, `f64`, …), `chrono::DateTime<Utc>`,
-domain entities, domain enums, `DomainId` typed IDs, `Pagination`,
-`DomainError`.
+### 2.4 Invariantes y Antipatrones Denegados
 
-❌ DTOs (`*Input`, `*Output`) outside `driving/http_axum`
-❌ Models (`*Model`) outside `driven/mongo`
-❌ Driver types (`bson::ObjectId`, `mongodb::*`, `redis::*`) outside their adapter
-❌ Framework types (`axum::*`, `StatusCode`) outside `driving/http_axum`
-
-## 2.3 Naming
-
-| Scope                  | Rule                                  | Example ✅                         | Avoid ❌                    |
-| ---------------------- | ------------------------------------- | ---------------------------------- | --------------------------- |
-| Files & folders        | singular                              | `user.rs`, `product/`              | `users.rs`, `products/`     |
-| Structs                | PascalCase, singular                  | `User`, `Order`                    | `Users`, `Orders`           |
-| Port traits            | `{Entity}RepositoryPort`              | `UserRepositoryPort`               | `UserRepository` (as trait) |
-| Infrastructure structs | `{Entity}Repository` — no tech prefix | `UserRepository` in `driven/mongo` | `MongoUserRepository`       |
-| DB collections         | plural, snake_case                    | `users`, `order_items`             | `user`, `orderItems`        |
-| BSON document fields   | snake_case, always                    | `total_price`, `created_at`        | `totalPrice`, `createdAt`   |
-| API routes             | plural                                | `/api/v1/users`, `/api/v1/orders`  | `/api/v1/user`              |
-| DTOs                   | `*Input` / `*Output` suffix           | `CreateUserInput`, `UserOutput`    | `UserDto`, `UserRequest`    |
-| Mongo indexes          | explicit `name`, `*_idx` suffix       | `email_unique_idx`                 | driver-generated names      |
-| Variables & fields     | full words, no abbreviations          | `user_email`, `page_number`        | `usr`, `idx`, `tmp`         |
-
-## 2.4 Anti-patterns — reject on sight
-
-| Anti-pattern                                            | Why it is banned                                                                              | Do instead                                             |
-| ------------------------------------------------------- | --------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
-| `unwrap()` / `expect()` / `dbg!` in production code     | Denied by `[lints.clippy]` — the build fails                                                  | `?`, `ok_or_else(DomainError::…)`, `map_err`           |
-| Raw driver error crossing an adapter boundary           | Leaks infrastructure into the domain, and connection strings into logs                        | `.map_err(\|e\| DomainError::database(e.to_string()))` |
-| `delete_one` / `$unset` on an entity collection         | Soft-delete is the contract (§4.3)                                                            | `$set { deleted_at: now }`                             |
-| A query without `"deleted_at": { "$exists": false }`    | Returns tombstoned documents                                                                  | Add the filter to _every_ read                         |
-| Read-then-check before a mutating write                 | Two concurrent callers both pass the check (§4.4)                                             | One conditional atomic update                          |
-| Logging an error _and_ returning it                     | Double-logs; the boundary logs once (§4.1)                                                    | Construct and propagate with `?`                       |
-| `tower_http::TimeoutLayer`                              | Answers 408 with an empty body, breaking the envelope                                         | `middleware::request_timeout` (§4.6)                   |
-| `TraceLayer`                                            | Creates a second, disconnected root span                                                      | `middleware::trace_context` (§4.5)                     |
-| Bare `reqwest::Client`                                  | Does not propagate `traceparent`, has no timeout                                              | `shared::http_client::instrumented_client()`           |
-| `Span::current().record("x", …)` on an undeclared field | `tracing` drops it silently                                                                   | Declare the field in the span macro                    |
-| `#[tracing::instrument]` with no `fields(...)`          | No correlation key in the log line                                                            | Always declare at least one (`%id`, `%email`)          |
-| Assembling response JSON by hand                        | Diverges from the envelope                                                                    | `GenericApiResponse::{success,paginated,error}`        |
-| `TryFrom` for entity↔model conversion                   | Inconsistent with every other entity                                                          | `From` both ways (§3.5)                                |
-| A new `foo/mod.rs`                                      | The router convention is `foo.rs`                                                             | `foo.rs` next to `foo/`                                |
-| Axum path `:id`                                         | Axum 0.8 syntax is `{id}`; `:id` panics at startup                                            | `.route("/{id}", …)`                                   |
-| A `create_indexes()` call in `main.rs`                  | A wiring step the compiler cannot enforce; forget it and queries silently do collection scans | `Repository::new(&db).await` owns it (§3.7)            |
-| `repo.clone() as Arc<dyn UserRepositoryPort>`           | Rust coerces `Arc<Concrete>` → `Arc<dyn Trait>` on its own                                    | Pass `repo.clone()` directly (§3.10)                   |
+1. **`unwrap()` / `expect()` / `dbg!`**: Prohibidos en código de producción (`[lints.clippy]` deniega la compilación).
+2. **Fuga de errores crudos de infraestructura**: Mapeo obligatorio en adaptadores a `DomainError::database`, `DomainError::external_service` o `DomainError::internal`.
+3. **Hard Delete (`delete_one`, `$unset`)**: Prohibido. Borrado lógico universal mediante `$set: { deleted_at: now }`.
+4. **Lecturas sin filtro de soft-delete**: Toda consulta BSON (`find`, `find_one`, `count_documents`, `update_one`) debe incluir `"deleted_at": { "$exists": false }`.
+5. **Lectura previa a escritura sin atomicidad**: La protección contra condiciones de carrera exige actualizaciones atómicas condicionales (`$gte`, `$inc`).
+6. **Doble registro de errores (Log-and-Return)**: El error se propaga con `?` y se registra una sola vez en el choke-point `ApiError` (`server/error.rs`).
+7. **`tower_http::TimeoutLayer`**: Prohibido (responde 408 sin envelope). Se usa `middleware::request_timeout`.
+8. **`TraceLayer`**: Prohibido (crea spans raíz desconectados). Se usa `middleware::trace_context`.
+9. **`reqwest::Client` sin instrumentar**: Prohibido instanciar clientes HTTP directos; se inyecta `shared::http_client::instrumented_client()`.
+10. **`Span::current().record()` sobre campos no declarados**: Se descartan silenciosamente; todo campo debe figurar en los `fields(...)` del span.
+11. **`#[tracing::instrument]` sin `fields(...)`**: Todo método público de servicio debe declarar campos de correlación (`%id`, `%email`).
+12. **Construcción manual de JSON en respuestas**: Prohibida. Toda respuesta usa `GenericApiResponse::{success, paginated, error}`.
+13. **`TryFrom` para entidad $\leftrightarrow$ modelo**: Prohibido. Se implementa `From` en ambas direcciones resolviendo IDs no válidos en silencio.
+14. **Archivos `foo/mod.rs`**: Prohibidos (salvo los dos preexistentes). Se usa la convención `foo.rs` junto al directorio `foo/`.
+15. **Sintaxis de rutas Axum con dos puntos (`:id`)**: Prohibida en Axum 0.8. Se utiliza `{id}`.
+16. **Llamadas a `create_indexes()` en `main.rs`**: Prohibidas. El constructor `Repository::new(&db).await` encapsula la creación de índices.
+17. **Casts explícitos de traits (`repo as Arc<dyn ...>`)**: Prohibidos. Rust realiza la coerción implícita de `Arc<Concrete>` a `Arc<dyn Trait>`.
 
 ---
 
-# 3. Canonical templates
+## 3. Esquemas Canónicos de Tipos y Código
 
-Presented in dependency order — the order you should write them in.
+```
+[ entities/{entity}.rs ]  <───  [ port/{entity}.rs ]
+           │                            │
+           ▼                            ▼
+[ mongo/{entity}/model.rs ]   [ application/{entity}.rs ]
+           │                            ▲
+           ▼                            │
+[ mongo/{entity}/repository.rs ]  [ routes/{entity}.rs ]  <───  [ dtos.rs ]
+```
 
-## 3.1 Entity — `src/domain/entities/{entity}.rs`
+### 3.1 Entidad de Dominio — `src/domain/entities/{entity}.rs`
 
 ```rust
 use chrono::{DateTime, Utc};
@@ -296,49 +187,25 @@ pub struct User {
 }
 
 impl User {
-    /// Predicates over the entity's own state are welcome here.
-    /// Anything that needs I/O is an application service, not this.
     pub fn is_deleted(&self) -> bool {
         self.deleted_at.is_some()
     }
 }
 ```
 
-- Derives are `Debug, Serialize, Deserialize, Clone` — `Serialize` is what makes
-  the entity loggable through `as_json!` (§4.5).
-- `id` is `Option` — `None` until the repository assigns it on `create`.
-- `created_at` / `updated_at` / `deleted_at` are mandatory on every entity.
-- The marker struct needs **no derives**; see §3.2.
+- **Derives requeridos**: `Debug, Serialize, Deserialize, Clone`.
+- `id` es `Option` (`None` previo a inserción en base de datos).
+- `created_at`, `updated_at` y `deleted_at` son campos obligatorios.
 
-## 3.2 Typed IDs — `DomainId<T, V = String>`
+### 3.2 Identificadores Tipados — `DomainId<T, V = String>` (`src/domain/values.rs`)
 
-Defined in `src/domain/values.rs`. A `UserId` cannot be mistaken for a
-`ProductId` at compile time, which is the whole point.
+- Creación desde valor confiable: `UserId::new("usr_123")`.
+- Parseo desde entrada no confiable: `UserId::parse(&str_val)?`.
+- Acceso por referencia: `id.inner()` $\rightarrow$ `&V`.
+- Consumo a valor interno: `id.into_inner()` $\rightarrow$ `V`.
+- Coerción a slice string: `&**id` $\rightarrow$ `&str` (vía trait `Deref`).
 
-```rust
-pub struct UserMarker;
-pub type UserId       = DomainId<UserMarker>;        // String-backed (default)
-pub type LegacyUserId = DomainId<UserMarker, i64>;   // any V: DomainIdValue
-```
-
-| Need                              | Use                                         |
-| --------------------------------- | ------------------------------------------- |
-| Build from a known value          | `UserId::new("usr_abc")`                    |
-| Build from an untrusted string    | `UserId::parse(&s)? ` → `Result<_, String>` |
-| Read the inner value              | `id.inner()` → `&V`                         |
-| Consume it (DTO conversion)       | `id.into_inner()` → `V`                     |
-| Pass to a repository (String IDs) | `&**id` → `&str` (via `Deref`)              |
-
-`DomainIdValue` is implemented for `String`, `i64`, `u64`, `i32`, `u32`.
-Implement it for your own type if you need a different inner value.
-
-`Clone`, `Debug`, `PartialEq`, `Eq` and `Hash` are hand-written on purpose:
-`#[derive]` would place the bound on the marker `T`, forcing every marker struct
-to derive traits it never uses — and the breakage only surfaces the first time
-someone compares two IDs, usually inside a test. Do not "simplify" them into
-derives.
-
-## 3.3 Port — `src/domain/port/{entity}.rs`
+### 3.3 Puerto de Repositorio — `src/domain/port/{entity}.rs`
 
 ```rust
 use crate::domain::entities::user::{User, UserId};
@@ -358,45 +225,35 @@ pub trait UserRepositoryPort: Send + Sync {
 }
 ```
 
-- Ports exist **only for aggregate roots**. Not every entity needs a repository.
-- Signatures use domain types and primitives only — never DTOs, never BSON.
-- `#[async_trait]` + `Send + Sync` on every port: Axum and Tokio move request
-  work across worker threads, so anything shared through `AppState` must be
-  thread-safe.
-- `count()` is not optional — every paginated list handler needs it.
-- Return `DomainResult<bool>` from `update`/`delete` to mean "did it match?".
-  Mapping `false` to `NotFound` is the _service's_ decision, not the adapter's.
-- A conditional write returns `DomainResult<bool>` too (`try_reserve_stock`) —
-  see §4.4.
+- Exclusivo para Aggregate Roots.
+- Requiere `#[async_trait]` y bounds `Send + Sync`.
+- `count()` es obligatorio para paginación.
+- `update` y `delete` retornan `DomainResult<bool>`.
 
-## 3.4 Domain service — `src/domain/services/{service}.rs`
+### 3.4 Domain Service — `src/domain/services/{service}.rs`
 
 ```rust
 use crate::domain::entities::order::Order;
 
-/// Pure business logic — zero I/O, zero constructor dependencies.
+/// Lógica de negocio pura: determinista, cero I/O, sin llamadas asíncronas.
+#[derive(Clone, Default)]
 pub struct PricingService;
 
 impl PricingService {
-    pub fn new() -> Self { Self }
+    pub fn new() -> Self {
+        Self
+    }
 
-    /// Business rule: orders over 1000 get a 10% discount.
     pub fn apply_discount(&self, order: &Order) -> f64 {
         if order.total_price > 1000.0 { order.total_price * 0.90 } else { order.total_price }
     }
 }
-
-impl Default for PricingService {
-    fn default() -> Self { Self::new() }
-}
 ```
 
-- Stateless, no constructor parameters, no ports.
-- Operates exclusively on domain entities and primitives.
-- Called from application services — never from infrastructure.
-- Provide `Default` alongside `new()` (clippy asks for it).
+- Inmutable, stateless, sin dependencias en constructor.
+- Instanciación directa en el Application Service (sin contenedor `Arc`).
 
-## 3.5 Application service — `src/application/{entity}.rs`
+### 3.5 Application Service — `src/application/{entity}.rs`
 
 ```rust
 use crate::domain::entities::user::{User, UserId};
@@ -448,18 +305,11 @@ impl UserService {
 }
 ```
 
-- Constructor injection via `Arc<dyn Port>` (dynamic dispatch). A service that
-  spans aggregates takes one `Arc<dyn …Port>` per aggregate.
-- `#[derive(Clone)]` so it can be shared through `AppState`.
-- Every public method carries `#[tracing::instrument(skip_all, fields(...))]`
-  with **at least one field** — that field is the correlation key in the logs.
-- Parameters are primitives, typed IDs or domain values. Never DTOs.
-- This is where **semantic** validation lives (uniqueness, existence, business
-  rules) — see §4.2.
-- Timestamps are set here with `chrono::Utc::now()`; IDs stay `None` until the
-  repository returns one.
+- Inyección mediante `Arc<dyn Port>`.
+- Métodos públicos instrumentados con `#[tracing::instrument(skip_all, fields(...))]`.
+- Validación semántica (existencia, unicidad, reglas de estado).
 
-## 3.6 Mongo model — `src/infrastructure/driven/mongo/{entity}/model.rs`
+### 3.6 Modelo MongoDB — `src/infrastructure/driven/mongo/{entity}/model.rs`
 
 ```rust
 use crate::domain::entities::user::{User, UserId};
@@ -506,14 +356,7 @@ impl From<UserModel> for User {
 }
 ```
 
-- **`From` in both directions, never `TryFrom`.** An unparseable ID becomes
-  `None` via `.ok()`; a validation error at this layer would be a lie, since the
-  document already exists.
-- **MongoDB is snake_case, always.** `#[serde(rename_all = "snake_case")]` makes
-  the contract explicit. The only field-level `rename` allowed is `_id`. Every
-  `doc! { … }` — queries and index keys alike — uses snake_case names.
-
-## 3.7 Mongo repository — `.../{entity}/repository.rs`
+### 3.7 Repositorio MongoDB — `src/infrastructure/driven/mongo/{entity}/repository.rs`
 
 ```rust
 use crate::domain::entities::user::{User, UserId};
@@ -535,22 +378,12 @@ pub struct UserRepository {
 }
 
 impl UserRepository {
-    /// Building the repository ensures its indexes exist.
-    ///
-    /// `new` is **async and fallible on purpose**: index creation happens here,
-    /// not in `main.rs`. That turns "the indexes are there" from a wiring step
-    /// someone can forget — one `cargo check` will never catch — into a
-    /// property of the type. Holding a `UserRepository` means its indexes were
-    /// created, or the service never started.
     pub async fn new(db: &Database) -> DomainResult<Self> {
         let repo = Self { collection: db.collection::<UserModel>("users") };
         repo.create_indexes().await?;
         Ok(repo)
     }
 
-    /// Idempotent — safe to run on every startup.
-    /// **Private**: `new` is the only caller, by design. A `pub` version
-    /// reopens the door to calling it (or forgetting to) from the outside.
     async fn create_indexes(&self) -> DomainResult<()> {
         let indexes = vec![
             IndexModel::builder()
@@ -562,7 +395,6 @@ impl UserRepository {
                         .build(),
                 )
                 .build(),
-            // Every read filters on `deleted_at`, so it leads every compound index.
             IndexModel::builder()
                 .keys(doc! { "deleted_at": 1, "created_at": -1 })
                 .options(
@@ -624,9 +456,6 @@ impl UserRepositoryPort for UserRepository {
             .map_err(|_| DomainError::invalid_param("id", "User", &**id))?;
 
         let model = UserModel::from(user.clone());
-        // bson 3 API (`serialize_to_document`, not the old `bson::to_document`).
-        // This `$set`s the whole serialized model, so any field the model
-        // declares is overwritten — partial updates need a hand-built `doc!`.
         let bson_doc = mongodb::bson::serialize_to_document(&model)
             .map_err(|e| DomainError::internal(e.to_string()))?;
 
@@ -671,32 +500,7 @@ impl UserRepositoryPort for UserRepository {
 }
 ```
 
-- Every method is `#[tracing::instrument(skip_all)]`.
-- Every `.await` on the driver is followed by `.map_err(…)`. No raw driver error
-  ever leaves this file.
-- Every filter carries `"deleted_at": { "$exists": false }`.
-- Invalid `ObjectId` → `DomainError::invalid_param`, not a database error: the
-  client sent it.
-- Index names are explicit. A query that filters or sorts on a new field needs a
-  new index in the same PR.
-- Compound indexes lead with `deleted_at`, because every read filters on it
-  first.
-- For ephemeral collections, add a TTL index instead of a cleanup job — Mongo
-  expires the documents for you:
-
-  ```rust
-  IndexModel::builder()
-      .keys(doc! { "updated_at": 1 })
-      .options(
-          IndexOptions::builder()
-              .expire_after(std::time::Duration::from_secs(7 * 24 * 3600))
-              .name("updated_at_ttl_idx".to_string())
-              .build(),
-      )
-      .build()
-  ```
-
-## 3.8 DTOs — `.../routes/{entity}/dtos.rs`
+### 3.8 DTOs HTTP — `src/infrastructure/driving/http_axum/routes/{entity}/dtos.rs`
 
 ```rust
 use crate::domain::entities::user::{User, UserId};
@@ -733,12 +537,7 @@ impl From<User> for UserOutput {
 }
 ```
 
-- `*Input`: `#[derive(Deserialize, Validate)]`. Syntactic rules only (§4.2).
-- `*Output`: `#[derive(Serialize)]` + `From<Entity>` so handlers use `.into()`.
-- Timestamps are serialized as RFC 3339 strings.
-- `deleted_at` is never exposed in an `*Output`.
-
-## 3.9 Handlers and routing — `.../routes/{entity}.rs`
+### 3.9 Handlers y Routing — `src/infrastructure/driving/http_axum/routes/{entity}.rs`
 
 ```rust
 pub mod dtos;
@@ -768,7 +567,6 @@ pub struct UserQuery {
     pub limit: Option<u32>,
 }
 
-/// Axum 0.8 path syntax is `{id}`. `:id` panics at router construction.
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/", post(create_user).get(list_users))
@@ -780,7 +578,13 @@ pub async fn create_user(
     State(service): State<Arc<UserService>>,
     ValidatedBody(req): ValidatedBody<CreateUserInput>,
 ) -> Result<GenericApiResponse<UserOutput>, ApiError> {
+    // Secuencia canónica de 5 pasos inmutables:
+    // 1. Deserialización y validación sintáctica (ValidatedBody)
+    // 2. Mapeo a tipos de dominio
+    // 3. Invocación del servicio de aplicación
     let user: User = service.create_user(&req.name, &req.email).await?;
+    // 4. Mapeo a DTO Output (.into())
+    // 5. Envoltorio en GenericApiResponse::success
     Ok(GenericApiResponse::success(user.into()))
 }
 
@@ -801,43 +605,15 @@ pub async fn list_users(
 }
 ```
 
-A handler does exactly five things, in this order:
+### 3.10 Estado Compartido y Composition Root
 
-1. Deserialize + validate the body via `ValidatedBody<T>`.
-2. Convert path/query strings into typed IDs and `Pagination`.
-3. Call the service with primitives / domain values.
-4. Convert the domain result into an `*Output` DTO with `.into()`.
-5. Wrap it in `GenericApiResponse`.
-
-Zero business logic. Zero branching on content type. The `?` operator carries
-`DomainError` into `ApiError` through the `From` impl in §4.1.
-
-> **Caveat that is easy to get wrong.** `Query<T>` does **not** run
-> `validator` — `#[derive(Validate)]` on a query struct is decorative and its
-> rules never execute. Bound pagination in the handler with `clamp`, as above.
-> Only `ValidatedBody<T>` validates. The demo entities still use the unbounded
-> `unwrap_or` form; new code should clamp.
-
-Register the entity router in `routes.rs`:
-
-```rust
-pub fn app_router() -> Router<AppState> {
-    Router::new()
-        .nest("/users", user::router())
-        .nest("/products", product::router())
-}
-```
-
-## 3.10 Wiring — `AppState` and `main.rs`
-
-`src/.../server/state.rs`:
+**`src/infrastructure/driving/http_axum/server/state.rs`**:
 
 ```rust
 #[derive(Clone)]
 pub struct AppState {
     pub health_checker: HealthChecker,
     pub user_service: Arc<UserService>,
-    pub product_service: Arc<ProductService>,
 }
 
 macro_rules! impl_from_ref {
@@ -848,18 +624,14 @@ macro_rules! impl_from_ref {
     };
 }
 
-// HealthChecker is not an Arc<Service>, so it gets a hand-written impl.
 impl FromRef<AppState> for HealthChecker {
     fn from_ref(state: &AppState) -> Self { state.health_checker.clone() }
 }
 
 impl_from_ref!(AppState, user_service, UserService);
-impl_from_ref!(AppState, product_service, ProductService);
 ```
 
-`src/main.rs` is the Composition Root. `main` only orchestrates; the body lives
-in `serve()` so **every** exit path — including fail-fast returns — reaches the
-tracer flush:
+**`src/main.rs` (Composition Root)**:
 
 ```rust
 #[tokio::main]
@@ -870,7 +642,7 @@ async fn main() {
     }
 
     let env = config::get();
-    let tracer_guard = match tracer::init_tracing().await { /* … */ };
+    let tracer_guard = match tracer::init_tracing().await { /* ... */ };
 
     serve(env).await;
 
@@ -878,436 +650,223 @@ async fn main() {
         guard.shutdown();
     }
 }
-```
 
-Providers and repositories are **fail-fast** — the service does not start
-degraded. Every one of them follows the same shape:
-
-```rust
-let mongo = match MongoProvider::new(&env.service_name, &env.mongo_url, &env.mongo_db).await {
-    Ok(mongo) => mongo,
-    Err(e) => {
-        tracing::error!("Failed to connect to MongoDB: {}", e);
-        return;
-    }
-};
-
-// Repositories: `new` is async and fallible because it also ensures the
-// indexes. There is no separate `create_indexes()` step here to forget.
-let user_repo = match UserRepository::new(&db).await {
-    Ok(repo) => Arc::new(repo),
-    Err(e) => {
-        tracing::error!("Failed to initialize UserRepository: {}", e);
-        return;
-    }
-};
-```
-
-**No explicit trait casts.** Rust coerces `Arc<Concrete>` into `Arc<dyn Trait>`
-by itself at the call site, so passing the repository to a service needs no
-turbofish and no `as`:
-
-```rust
-// ✅
-let user_service = Arc::new(UserService::new(user_repo.clone()));
-
-// ❌ noise the compiler does not need — and it drags the port trait into
-//    main.rs's imports for no reason
-let user_service = Arc::new(UserService::new(user_repo.clone() as Arc<dyn UserRepositoryPort>));
-```
-
-Then `AppState` is assembled and the server launched:
-
-```rust
-ServerLauncher::new(state)
-    .with_cors_origins(env.cors_origins.clone())
-    .with_http(env.port)
-    .with_drain_timeout(env.drain_timeout_secs)
-    .with_request_timeout(env.request_timeout_secs)
-    .with_msgpack(env.msgpack_enabled)
-    .run()
-    .await;
-```
-
-| Builder method               | Effect                                                         |
-| ---------------------------- | -------------------------------------------------------------- |
-| `new(state)`                 | Takes `AppState` with every service injected                   |
-| `with_http(port)`            | **Omit it and no server starts** — `run()` returns immediately |
-| `with_cors_origins(origins)` | Comma-separated list, or `"*"` for permissive                  |
-| `with_drain_timeout(secs)`   | Hard cap on in-flight connections during shutdown (§4.7)       |
-| `with_request_timeout(secs)` | Per-request budget → 504 with the standard envelope (§4.6)     |
-| `with_msgpack(enabled)`      | Response-side `Accept` negotiation, on by default (§4.8)       |
-| `run()`                      | Binds and blocks until the shutdown signal                     |
-
-### The 7 registration points for a new entity
-
-Forgetting one of these is the most common failure mode. **`cargo check` catches
-every one of them** — that is deliberate. The one step it used to miss (calling
-`create_indexes()` in `main.rs`) no longer exists: the constructor owns it.
-
-1. `pub mod {entity};` in `src/domain/entities.rs`
-2. `pub mod {entity};` in `src/domain/port.rs`
-3. `pub mod {entity};` in `src/application.rs`
-4. `pub mod {entity};` in `src/infrastructure/driven/mongo.rs`
-5. `pub mod {entity};` in `src/infrastructure/driving/http_axum/routes.rs` **and**
-   `.nest("/{entities}", {entity}::router())` in `app_router()`
-6. Field in `AppState` + `impl_from_ref!` in `server/state.rs`
-7. In `main.rs`: `Repository::new(&db).await` (fail-fast), build the service,
-   add it to `AppState`
-
-If you ever find yourself adding a step that the compiler cannot enforce, that
-is a signal the design is wrong — push the guarantee into a type, the way
-`Repository::new` does with indexes.
-
----
-
-# 4. Cross-cutting contracts
-
-## 4.1 Errors
-
-Rules:
-
-- Every domain/application/adapter function returns `DomainResult<T>`.
-- No `unwrap()` / `expect()` — denied at build time (§7).
-- Every external error is mapped with `.map_err(…)` at the adapter boundary.
-- Build `DomainError` through its constructors, not by hand, except where a
-  variant needs a custom `reason` (`DomainError::Invalid { field, reason }`).
-- **Every error is logged exactly once, at the driving boundary.** Services and
-  repositories construct and propagate with `?`; they never log-and-return the
-  same error. A new driving adapter (pubsub, gRPC) implements its own single
-  choke point reusing `severity()` and `public_message()`.
-
-Each error has two views, both declared in `src/domain/error.rs`:
-
-- `Display` / `to_string()` — the **internal** message, full detail (raw driver
-  text, connection strings). Logs only. It never crosses a driving boundary.
-- `public_message()` — the **client-safe** message. Client-caused variants reuse
-  their `Display` text; variants carrying infrastructure detail return a generic
-  message pointing at the `trace_id`.
-- `severity()` — the `ErrorSeverity` (`Info` | `Warn` | `Error`) the boundary
-  must log with.
-
-| Variant           | `code()`                       | HTTP | `severity()` | Public message              |
-| ----------------- | ------------------------------ | ---- | ------------ | --------------------------- |
-| `NotFound`        | `NOT_FOUND`                    | 404  | Info         | same as `Display`           |
-| `AlreadyExists`   | `ALREADY_EXISTS`               | 409  | Info         | same as `Display`           |
-| `Invalid`         | `INVALID_INPUT`                | 400  | Info         | same as `Display`           |
-| `Required`        | `REQUIRED_FIELD`               | 400  | Info         | same as `Display`           |
-| `Unauthorized`    | `UNAUTHORIZED`                 | 401  | Warn         | same as `Display`           |
-| `Forbidden`       | `FORBIDDEN`                    | 403  | Warn         | same as `Display`           |
-| `BusinessRule`    | `BUSINESS_RULE_VIOLATION`      | 422  | Warn         | same as `Display`           |
-| `Timeout`         | `TIMEOUT`                      | 504  | Error        | generic, "please retry"     |
-| `ExternalService` | `EXTERNAL_SERVICE_UNAVAILABLE` | 500  | Error        | generic, names the service  |
-| `Database`        | `INTERNAL_ERROR`               | 500  | Error        | generic, points at trace_id |
-| `Internal`        | `INTERNAL_ERROR`               | 500  | Error        | generic, points at trace_id |
-
-Constructors: `not_found(entity, id)`, `duplicate(entity, field, value)`,
-`invalid_param(param, entity, value)`, `business_rule(msg)`, `timeout(op)`,
-`external_service(service, msg)`, `database(msg)`, `internal(msg)`.
-
-`code()` is a **public API contract** — clients branch on `cause` + HTTP status,
-never on `message`. Changing a code is a breaking change; adding a variant is
-not. Tests assert on `code()`, never on message text.
-
-`ApiError` (`server/error.rs`) is a struct — not an enum — with `code`, `message`
-and `status`. Its `From<DomainError>` impl is the single place that decides the
-status mapping, emits the single severity-driven log with full internal detail,
-and takes `message` from `public_message()` (never `to_string()`).
-
-See `src/domain/error.rs` for the canonical implementation.
-
-## 4.2 Validation boundaries
-
-- **Syntactic — HTTP layer, `*Input` DTOs, `validator`.** Shape and format:
-  string length, email format, numeric ranges. Runs inside `ValidatedBody<T>`;
-  failures become `400 INVALID_INPUT` without ever reaching the service.
-- **Semantic — application services, against ports.** Uniqueness, existence,
-  stock availability, transactional limits. Anything requiring a query lives
-  here and returns a `DomainError`.
-
-A rule that needs no I/O and belongs to the business (not the transport) goes in
-a domain service (§3.4).
-
-## 4.3 Soft delete
-
-Mandatory for every entity. `deleted_at: Option<DateTime<Utc>>` on the entity,
-`Option<bson::DateTime>` on the model. `delete` does
-`$set { deleted_at: now }`; **no hard deletes.** Every read filters
-`"deleted_at": { "$exists": false }`, including `count_documents`. Compound
-indexes lead with `deleted_at` because every query starts there.
-
-The fakes used in tests replicate this: a soft-deleted record must be invisible
-to `find_by_id`, `find_all` and `count`.
-
-## 4.4 Concurrency and atomic writes
-
-Anything that guards a resource (stock, quota, seats, balance) must be a
-**single conditional update**, not a read followed by a check followed by a
-write. Two concurrent callers both pass a read-then-check, and both proceed.
-
-The canonical pattern, from `demo_product/repository.rs`:
-
-```rust
-// The `$gte` guard is what makes this atomic: MongoDB matches the document and
-// applies the `$inc` as one operation, so two concurrent reservations cannot
-// both succeed against the same last unit. Dropping it turns this into a race.
-let result = self
-    .collection
-    .update_one(
-        doc! { "_id": oid, "deleted_at": { "$exists": false }, "stock": { "$gte": quantity } },
-        doc! { "$inc": { "stock": -quantity }, "$set": { "updated_at": now } },
-    )
-    .await
-    .map_err(|e| DomainError::database(e.to_string()))?;
-
-Ok(result.matched_count > 0)   // false = the guard rejected it
-```
-
-Rules that follow:
-
-- A conditional write returns `bool` from the port. The **service** turns
-  `false` into the right `DomainError` — and may re-read to distinguish "gone"
-  from "out of stock", so the client gets the correct code.
-- A read-then-check _before_ the atomic write is allowed only as a friendly
-  fast-fail that shows the client the real number. It is never the guard. Say so
-  in a comment, as the demo does.
-- **After a successful reservation, every later failure must compensate.** The
-  demo releases the stock inline and logs at `error` if the compensation itself
-  fails, naming the record that needs manual reconciliation. Once the order
-  moves to another service, that inline compensation is the seam where a saga or
-  an outbox belongs.
-
-## 4.5 Observability
-
-**The request span.** `middleware::trace_context` owns it. There is no
-`TraceLayer` — adding one creates a disconnected root trace. The middleware:
-
-- Extracts the remote context from W3C `traceparent` via the global propagator,
-  falling back to GCP's legacy `X-Cloud-Trace-Context`. Present → the span joins
-  that trace with `set_parent`; absent → a fresh `trace_id`.
-- Attaches the span's OTel context as the task-local current context
-  (`.with_context(...)`), so natively instrumented clients parent their spans to
-  the request. Removing this silently orphans them.
-- Propagates `X-Request-Id`, or generates a UUID v7, echoes it on the response,
-  and records it as a **declared** span field. `Span::current().record(...)` with
-  an undeclared field is dropped silently by `tracing`.
-
-**Structured object logging.** Use the `as_json!` macro instead of `?` (Debug)
-or manual serialization. It is `#[macro_export]`ed, which places it at the
-**crate root** — the import is `crate::as_json`, not `crate::domain::as_json`:
-
-```rust
-use crate::as_json;
-
-tracing::info!(user = %as_json!(&user), "User created successfully");
-```
-
-The `%` prefix marks it as a formatted string. The macro degrades to a JSON
-error object rather than panicking, so it is safe on any `Serialize` value.
-
-**Tracer setup** (`shared/tracer.rs`) registers both the global text-map
-propagator (`TraceContextPropagator`) and the global tracer provider
-(`global::set_tracer_provider`). Instrumented libraries resolve the tracer from
-the global provider — without it their spans go nowhere.
-
-**OTel version alignment is mandatory.** `opentelemetry`, `opentelemetry_sdk`,
-`opentelemetry-semantic-conventions`, `opentelemetry-gcloud-trace`,
-`tracing-opentelemetry` and the `reqwest-tracing` feature flag must all target
-the same OpenTelemetry minor — the one the `mongodb` driver requires. Mixing
-minors compiles fine but splits spans into disconnected traces, because each
-minor is a separate crate with its own global registry. **This invariant is
-currently violated — see the drift note in §1.2.**
-
-MongoDB: the driver's `opentelemetry` feature is on, plus `bson`'s
-`serde_json-1` feature (required by the driver's otel code with `bson-3`).
-`MongoProvider` activates it via `OpentelemetryOptions::builder().enabled(true)`.
-
-**GCP logs** come from the custom `CloudLoggingFormat` in
-`shared/tracer/format.rs`. Do not reintroduce `tracing-stackdriver`: it pins
-`tracing-opentelemetry 0.23` internally, cannot read the OTel context of modern
-spans, and silently drops the `logging.googleapis.com/trace` correlation field.
-
-**Local fallback.** When the GCP exporter is unavailable, `init_tracing` falls
-back to plain `fmt` logs plus an exporterless in-process tracer, so every
-request still carries a valid `trace_id`. Startup does not fail because
-telemetry is unavailable.
-
-**Flush.** `init_tracing` returns a `TracerGuard`; `main.rs` holds it and calls
-`guard.shutdown()` after the server exits to flush batched spans. Never add an
-exit path that bypasses it — that is why the body lives in `serve()`.
-
-## 4.6 Timeouts
-
-Two independent budgets. Both exist because a dependency that accepts a
-connection and then goes silent would otherwise pin a task forever.
-
-**Inbound** — `middleware::request_timeout`, configured by
-`REQUEST_TIMEOUT_SECS` (default 30). On expiry it returns
-`DomainError::timeout(...)` → **504** with the standard envelope and
-`cause: "TIMEOUT"`. It is deliberately **not** `tower_http::TimeoutLayer`, which
-answers a bare 408 with an empty body and breaks the envelope. It is layered
-_inside_ `trace_context`, so a timed-out request is still recorded on its span
-and still echoes its `X-Request-Id`. The internal detail (method, path, budget)
-goes to the log; the client gets the generic message.
-
-**Outbound** — `shared::http_client`. `reqwest` applies **no timeout by
-default**, so every client this template hands out sets one:
-
-| Constant / fn                   | Value / purpose                                        |
-| ------------------------------- | ------------------------------------------------------ |
-| `DEFAULT_TIMEOUT`               | 10 s — whole request (connect + send + response)       |
-| `DEFAULT_CONNECT_TIMEOUT`       | 3 s — TCP/TLS handshake alone                          |
-| `instrumented_client()`         | The default client. Use this.                          |
-| `client_with_timeout(duration)` | Explicit budget for a legitimately slower/stricter dep |
-
-Both return a `ClientWithMiddleware` carrying `TracingMiddleware`, so outbound
-calls propagate `traceparent`. Build them in `main.rs` and inject them into
-driven adapters — never construct a bare `reqwest::Client`.
-
-Per-dependency timeouts should normally fire before the inbound budget; the
-request timeout is the last-resort guard.
-
-## 4.7 Health checks and graceful shutdown
-
-Two endpoints, outside `/api/v1`:
-
-- `GET /healthz` — liveness. Returns 200 whenever the process is alive,
-  **including while draining**. A failing liveness probe tells the orchestrator
-  to _kill_ the process, which is the opposite of a graceful drain.
-- `GET /readyz` — readiness. 200 when dependencies respond to ping, 503
-  otherwise. The readiness checker is a `HealthChecker` closure injected from
-  `main.rs`.
-
-`SIGTERM`/`Ctrl+C` triggers, in order:
-
-1. `health::start_draining()` flips a process-wide `AtomicBool`, so `/readyz`
-   returns 503 **before** the listener closes and the load balancer takes the
-   pod out of rotation instead of racing the shutdown.
-2. The graceful-shutdown future resolves **immediately** — never sleep before
-   resolving it; that delays the drain and leaves in-flight requests unbounded.
-3. `drain_timeout` (a `oneshot` + `tokio::select!`) acts as a hard cap on
-   in-flight connections; exceeding it logs a warning and aborts them.
-4. `serve()` returns, `main` flushes the tracer.
-
-## 4.8 HTTP response envelope
-
-Every response — success or error — is built by `GenericApiResponse`
-(`server/response.rs`). Handlers never assemble response JSON by hand.
-
-```json
-// Success
-{ "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736", "data": { "id": "u1", "name": "Ada" } }
-
-// Error — same envelope; `data` carries the detail, `cause` the stable code
-{ "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736", "data": { "message": "User not found: u9" }, "cause": "NOT_FOUND" }
-
-// Paginated
-{
-  "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736",
-  "data": { "data": [{ "id": "u1", "name": "Ada" }], "total": 42, "page": 1, "limit": 20 }
+async fn serve(env: &'static Env) {
+    let mongo = match MongoProvider::new(&env.service_name, &env.mongo_url, &env.mongo_db).await {
+        Ok(mongo) => mongo,
+        Err(e) => {
+            tracing::error!("Failed to connect to MongoDB: {}", e);
+            return;
+        }
+    };
+    let db = mongo.database();
+
+    let user_repo = match UserRepository::new(&db).await {
+        Ok(repo) => Arc::new(repo),
+        Err(e) => {
+            tracing::error!("Failed to initialize UserRepository: {}", e);
+            return;
+        }
+    };
+
+    let user_service = Arc::new(UserService::new(user_repo));
+
+    let state = AppState {
+        health_checker: HealthChecker::new(mongo.clone()),
+        user_service,
+    };
+
+    ServerLauncher::new(state)
+        .with_cors_origins(env.cors_origins.clone())
+        .with_http(env.port)
+        .with_drain_timeout(env.drain_timeout_secs)
+        .with_request_timeout(env.request_timeout_secs)
+        .with_msgpack(env.msgpack_enabled)
+        .run()
+        .await;
 }
 ```
 
-- `trace_id` is always present — taken from the active OTel span, zeros when
-  tracing is unavailable.
-- `data` carries the payload. On errors it is an `ErrorDetail` **object**
-  (`{ "message": … }`), not a bare string, so error payloads can gain fields
-  without breaking clients.
-- `cause` appears **only** on errors and is always a `DomainError::code()`.
-- There is no top-level `error` field — that legacy shape is retired, and a test
-  asserts it stays gone.
+---
 
-Constructors: `success(data)`, `paginated(data, total, page, limit)`,
-`error(code, message, status)` (used by `ApiError::into_response`).
+## 4. Matrices de Derivación y Scaffolding
 
-## 4.9 Content negotiation (MessagePack)
+### 4.1 Scaffolding de Nueva Entidad / Aggregate Root
 
-Split by direction:
+Orden estricto de creación y compilación:
 
-- **Input — always on.** `ValidatedBody<T>` deserializes the body straight into
-  the DTO: MessagePack when `Content-Type: application/vnd.msgpack`, JSON
-  otherwise. Then it runs the `validator` rules. No intermediate `Value` tree.
-- **Output — on by default, disable with `ENABLE_MSGPACK=false`.**
-  `GenericApiResponse::into_response` stores a type-erased `Arc` of itself in
-  the response extensions (`NegotiablePayload`). When the client sends
-  `Accept: application/vnd.msgpack`, the `msgpack_negotiation` middleware
-  encodes that original value **once** with `rmp_serde::to_vec_named` and swaps
-  the body. Without the header — or with the flag off — the JSON body passes
-  through at zero cost.
+1. `src/domain/entities/{entity}.rs` + registro en `src/domain/entities.rs`.
+2. `src/domain/port/{entity}.rs` + registro en `src/domain/port.rs`.
+3. `src/application/{entity}.rs` + registro en `src/application.rs`.
+4. `src/infrastructure/driven/mongo/{entity}.rs` (`pub mod model; pub mod repository;`) + registro en `src/infrastructure/driven/mongo.rs`.
+5. `src/infrastructure/driven/mongo/{entity}/model.rs` + `src/infrastructure/driven/mongo/{entity}/repository.rs`.
+6. `src/infrastructure/driving/http_axum/routes/{entity}/dtos.rs` + `src/infrastructure/driving/http_axum/routes/{entity}.rs`.
+7. `src/infrastructure/driving/http_axum/routes.rs` (registro de módulo y `.nest("/entities", entity::router())`).
+8. `src/infrastructure/driving/http_axum/server/state.rs` (campo en `AppState` + macro `impl_from_ref!`).
+9. `src/main.rs` (`serve()`: instanciación fail-fast de repositorio, servicio e inyección en `AppState`).
 
-Rules: handlers never branch on format; responses must always be valid JSON by
-default (the swap is an optimization, never a requirement); use `to_vec_named`,
-never `to_vec` — positional arrays break clients that mirror the JSON contract.
-Responses without the extension (health checks) pass through untouched.
-
-## 4.10 Middleware stack
-
-Declared in `ServerLauncher::run()`. Axum wraps each `.layer()` around the
-previous one, so **the last registered is the outermost**. A request traverses:
+**Los 7 Puntos de Registro Obligatorios**:
 
 ```
-CORS
-  → DefaultBodyLimit (32 MiB)
-    → RequestDecompressionLayer
-      → CompressionLayer
-        → trace_context            (span, traceparent, X-Request-Id)
-          → request_timeout        (504 with the envelope)
-            → msgpack_negotiation  (only if enabled)
-              → handler
+1. src/domain/entities.rs                           --> pub mod {entity};
+2. src/domain/port.rs                               --> pub mod {entity};
+3. src/application.rs                               --> pub mod {entity};
+4. src/infrastructure/driven/mongo.rs               --> pub mod {entity};
+5. src/infrastructure/driving/http_axum/routes.rs   --> pub mod {entity}; + .nest(...)
+6. src/infrastructure/driving/http_axum/server/state.rs --> Campo en AppState + impl_from_ref!
+7. src/main.rs                                      --> Repo::new(&db).await? + Service::new + AppState
 ```
 
-The two orderings that matter and must not be swapped: `request_timeout` inside
-`trace_context` (so timeouts are traced and get their request id), and
-`msgpack_negotiation` innermost (so it sees the response extension before any
-other layer can rewrite the body).
+### 4.2 Scaffolding de Endpoint o Caso de Uso
+
+Árbol de decisión y secuencia de capas a impactar:
+
+- **Acceso a datos nuevo**: Método en `Port` $\rightarrow$ Implementación en `Repository` (+ índice en `create_indexes()` si filtra/ordena por nuevo campo).
+- **Lógica de caso de uso**: Método en `{Entity}Service` con `#[tracing::instrument]` y validación semántica.
+- **Entrada / Salida de transporte**: DTO `*Input` (con `Validate`) y DTO `*Output` (con `From<Entity>`).
+- **Handler**: Función de 5 pasos en `routes/{entity}.rs`.
+- **Ruta**: Registro en `router()` de la entidad (o router padre para sub-recursos relacionales `/users/{id}/orders`).
+
+### 4.3 Scaffolding de Domain Service
+
+- Archivo: `src/domain/services/{service}.rs` + registro `pub mod {service};` en `src/domain/services/mod.rs`.
+- Estructura: Struct unitario `pub struct {Service};` con `new() -> Self` e `impl Default`.
+- Inyección: Campo directo por valor en `{Entity}Service::new()` (sin inyección `Arc`).
+
+### 4.4 Scaffolding de Driven Adapters
+
+#### Servicio HTTP Externo
+
+- **Puerto**: `src/domain/port/{capability}.rs` nombrando la capacidad funcional (`PaymentGatewayPort`), no la tecnología (`StripePort`).
+- **Adaptador**: `src/infrastructure/driven/{adapter}.rs` recibiendo `reqwest_middleware::ClientWithMiddleware` y `base_url`. Errores mapeados a `DomainError::external_service`.
+- **Wiring**: Inyección de `shared::http_client::instrumented_client()` desde `main.rs`.
+
+#### Cache Redis
+
+- Provider: `src/infrastructure/driven/redis.rs` (`RedisProvider`).
+- Configuración: `redis_url` y `redis_prefix` en `shared/config.rs` y `.env.example`.
+- Claves: Prefijadas con `provider.get_path(&["entity", &id])`.
+- **Política de Degradación (Cache-Aside)**: Fallos en Redis emiten `tracing::warn!` y degradan a MongoDB primario; no abortan la petición.
 
 ---
 
-# 5. Configuration
+## 5. Máquina de Estados y Contratos Transversales
 
-`shared/config.rs` loads `.env` once into a `OnceLock<Env>`. `config::get()`
-returns `&'static Env`. **A missing required variable calls `process::exit(1)`
-with a message on stderr** — the service refuses to start half-configured.
-`.env.example` is the contract; keep it in sync when you add a variable.
+### 5.1 Dominio de Errores y Registro Choke-Point
 
-| Variable                 | Required | Default | Purpose                                              |
-| ------------------------ | -------- | ------- | ---------------------------------------------------- |
-| `SERVICE_NAME`           | **yes**  | —       | Mongo app name, OTel `service.name`                  |
-| `MONGO_URL`              | **yes**  | —       | Connection string                                    |
-| `MONGO_DB`               | **yes**  | —       | Database name                                        |
-| `PORT`                   | no       | `3000`  | HTTP port (must parse as `u16`, else exit)           |
-| `SERVICE_ENV` (or `ENV`) | no       | `DEV`   | `LCL` / `SBX` / `PRD`; OTel `deployment.environment` |
-| `PROJECT_ID`             | no       | empty   | GCP project for trace/log correlation                |
-| `DEBUG_LEVEL`            | no       | `info`  | Base level of the `EnvFilter`                        |
-| `CORS_ORIGINS`           | no       | `*`     | Comma-separated list, or `*`                         |
-| `DRAIN_TIMEOUT_SECS`     | no       | `10`    | Hard cap on in-flight connections at shutdown        |
-| `REQUEST_TIMEOUT_SECS`   | no       | `30`    | Per-request budget → 504                             |
-| `ENABLE_MSGPACK`         | no       | `true`  | Response-side `Accept` negotiation                   |
+Todo método interno retorna `DomainResult<T>` (`Result<T, DomainError>`).
 
-Booleans accept `1/true/yes` and `0/false/no` (any case); anything else falls
-back to the default rather than failing.
+| Variante          | Código Estable (`code()`)      | HTTP | Severidad | Mensaje Público (`public_message()`)         |
+| :---------------- | :----------------------------- | :--- | :-------- | :------------------------------------------- |
+| `NotFound`        | `NOT_FOUND`                    | 404  | Info      | Mensaje original                             |
+| `AlreadyExists`   | `ALREADY_EXISTS`               | 409  | Info      | Mensaje original                             |
+| `Invalid`         | `INVALID_INPUT`                | 400  | Info      | Mensaje original                             |
+| `Required`        | `REQUIRED_FIELD`               | 400  | Info      | Mensaje original                             |
+| `Unauthorized`    | `UNAUTHORIZED`                 | 401  | Warn      | Mensaje original                             |
+| `Forbidden`       | `FORBIDDEN`                    | 403  | Warn      | Mensaje original                             |
+| `BusinessRule`    | `BUSINESS_RULE_VIOLATION`      | 422  | Warn      | Mensaje original                             |
+| `Timeout`         | `TIMEOUT`                      | 504  | Error     | Mensaje genérico de reintento                |
+| `ExternalService` | `EXTERNAL_SERVICE_UNAVAILABLE` | 500  | Error     | Mensaje genérico con nombre del servicio     |
+| `Database`        | `INTERNAL_ERROR`               | 500  | Error     | Mensaje genérico con referencia a `trace_id` |
+| `Internal`        | `INTERNAL_ERROR`               | 500  | Error     | Mensaje genérico con referencia a `trace_id` |
 
-Noisy dependencies are pinned to `warn` in the `EnvFilter` regardless of
-`DEBUG_LEVEL`: `h2`, `hyper`, `tokio_util`, `tower_http`, `axum`.
+- **Doble Vista**: `Display` contiene el detalle técnico para logs internos; `public_message()` es el payload seguro expuesto al cliente.
+- **Choke-Point Único**: `ApiError` (`server/error.rs`) es el único punto donde se genera el log estructurado de error con severidad.
 
-**Redis is wired but disabled.** `RedisProvider` is complete (connect,
-multiplexed connection, `PING` on startup, prefixed key helper), but its
-construction in `main.rs` and its `redis_url` / `redis_prefix` fields in `Env`
-are commented out, and there is no `REDIS_URL` in `.env.example`. Enabling it
-means uncommenting all three and adding the variable — do not describe Redis as
-active until then.
+### 5.2 Fronteras de Validación
+
+- **Validación Sintáctica**: Capa HTTP en DTOs `*Input` mediante `validator` dentro del extractor `ValidatedBody<T>`.
+- **Validación Semántica**: Servicios de aplicación evaluando reglas contra puertos (unicidad, existencia, stock).
+
+### 5.3 Soft Delete Universal
+
+Toda entidad y modelo contiene `deleted_at: Option<DateTime<Utc>>`.
+
+- Escritura: `$set: { deleted_at: now }` (prohibido `delete_one`/`delete_many`).
+- Lectura: Todo filtro incluye `"deleted_at": { "$exists": false }`.
+- Índices compuestos: Inician siempre con `deleted_at: 1`.
+
+### 5.4 Concurrencia y Escrituras Atómicas
+
+Protección mediante actualización condicional atómica única:
+
+```rust
+let result = self.collection.update_one(
+    doc! { "_id": oid, "deleted_at": { "$exists": false }, "stock": { "$gte": quantity } },
+    doc! { "$inc": { "stock": -quantity }, "$set": { "updated_at": now } },
+).await.map_err(|e| DomainError::database(e.to_string()))?;
+
+Ok(result.matched_count > 0)
+```
+
+Si una transacción posterior falla, se ejecuta compensación inmediata revirtiendo la mutación.
+
+### 5.5 Observabilidad y Tracing
+
+- Spans manejados en `middleware::trace_context` extrayendo W3C `traceparent` o `X-Cloud-Trace-Context`.
+- Registro estructurado de objetos mediante macro en crate root:
+  ```rust
+  use crate::as_json;
+  tracing::info!(user = %as_json!(&user), "User created");
+  ```
+- Formato Cloud Logging configurado en `shared/tracer/format.rs`.
+
+### 5.6 Timeouts y Presupuestos de Red
+
+- **Inbound (Entrante)**: `middleware::request_timeout` configurado por `REQUEST_TIMEOUT_SECS` (default 30s) $\rightarrow$ 504 `TIMEOUT`.
+- **Outbound (Saliente)**: `shared::http_client` aplica 10s de timeout global y 3s de timeout de conexión TCP/TLS.
+
+### 5.7 Health Probes y Drenado Graceful
+
+- `GET /healthz`: Liveness probe (retorna 200 siempre que el proceso responda).
+- `GET /readyz`: Readiness probe (retorna 200 si dependencias responden a ping; 503 en drenado o fallo).
+- `SIGTERM`: `health::start_draining()` activa flag atómico invalidando `/readyz` y procede al drenado acotado por `DRAIN_TIMEOUT_SECS`.
+
+### 5.8 Formato de Respuesta y Negociación de Contenido
+
+Estructura del envelope `GenericApiResponse`:
+
+```json
+// Éxito
+{ "trace_id": "...", "data": { "id": "u1", "name": "Ada" } }
+
+// Error
+{ "trace_id": "...", "data": { "message": "User not found" }, "cause": "NOT_FOUND" }
+
+// Paginado
+{ "trace_id": "...", "data": { "data": [...], "total": 42, "page": 1, "limit": 20 } }
+```
+
+- MessagePack: Entrada transparente con `Content-Type: application/vnd.msgpack`; salida con `Accept: application/vnd.msgpack` serializada mediante `rmp_serde::to_vec_named`.
+
+### 5.9 Pipeline de Middlewares en `ServerLauncher`
+
+Orden de ejecución:
+$$\text{CORS} \rightarrow \text{DefaultBodyLimit} \rightarrow \text{Decompression} \rightarrow \text{Compression} \rightarrow \text{trace\_context} \rightarrow \text{request\_timeout} \rightarrow \text{msgpack\_negotiation} \rightarrow \text{Handler}$$
+
+### 5.10 Esquema de Variables de Entorno (`shared/config.rs`)
+
+| Variable               | Obligatoria | Default | Propósito                                |
+| :--------------------- | :---------- | :------ | :--------------------------------------- |
+| `SERVICE_NAME`         | **Sí**      | —       | Nombre de servicio y OTel `service.name` |
+| `MONGO_URL`            | **Sí**      | —       | Cadena de conexión MongoDB               |
+| `MONGO_DB`             | **Sí**      | —       | Base de datos MongoDB                    |
+| `PORT`                 | No          | `3000`  | Puerto TCP                               |
+| `SERVICE_ENV`          | No          | `DEV`   | Entorno: `LCL` / `SBX` / `PRD`           |
+| `PROJECT_ID`           | No          | `""`    | Proyecto GCP para correlación de trazas  |
+| `DEBUG_LEVEL`          | No          | `info`  | Nivel base de logs                       |
+| `CORS_ORIGINS`         | No          | `*`     | Orígenes CORS                            |
+| `DRAIN_TIMEOUT_SECS`   | No          | `10`    | Límite máximo de drenado                 |
+| `REQUEST_TIMEOUT_SECS` | No          | `30`    | Límite de tiempo por petición            |
+| `ENABLE_MSGPACK`       | No          | `true`  | Habilitación de negociación MessagePack  |
 
 ---
 
-# 6. Testing
+## 6. Esquema de Pruebas y Dobles en Memoria
 
-No `tests/` directory. Tests live in `#[cfg(test)] mod tests` next to the code
-they cover, so they move and get deleted with it. Procedure:
-`.agents/skills/test-entity`.
+### 6.1 Fakes en Memoria para Servicios de Aplicación
 
-**Application services — fake the port.** The `Arc<dyn Port>` seam is what makes
-this possible: an in-memory fake exercises the whole service with no Mongo, no
-mocking crate, and no extra dependency.
+Los tests de servicios residen en `#[cfg(test)] mod tests` en el mismo archivo utilizando fakes sobre el trait del puerto:
 
 ```rust
 #[cfg(test)]
@@ -1322,9 +881,46 @@ mod tests {
 
     #[async_trait::async_trait]
     impl UserRepositoryPort for FakeUserRepository {
-        async fn create(&self, user: &User) -> DomainResult<UserId> { /* assigns an ID */ }
-        async fn find_by_id(&self, id: &UserId) -> DomainResult<Option<User>> { /* honours soft-delete */ }
-        // …every method, with the real adapter's semantics
+        async fn create(&self, user: &User) -> DomainResult<UserId> {
+            let mut users = self.users.lock().unwrap();
+            let id = UserId::new(format!("{:024x}", users.len() + 1));
+            let mut stored = user.clone();
+            stored.id = Some(id.clone());
+            users.push(stored);
+            Ok(id)
+        }
+
+        async fn find_by_id(&self, id: &UserId) -> DomainResult<Option<User>> {
+            Ok(self.users.lock().unwrap().iter().find(|u| u.id.as_ref() == Some(id) && !u.is_deleted()).cloned())
+        }
+
+        async fn find_by_email(&self, email: &str) -> DomainResult<Option<User>> {
+            Ok(self.users.lock().unwrap().iter().find(|u| u.email == email && !u.is_deleted()).cloned())
+        }
+
+        async fn find_all(&self, _p: Pagination) -> DomainResult<Vec<User>> {
+            Ok(self.users.lock().unwrap().iter().filter(|u| !u.is_deleted()).cloned().collect())
+        }
+
+        async fn update(&self, id: &UserId, user: &User) -> DomainResult<bool> {
+            let mut users = self.users.lock().unwrap();
+            match users.iter_mut().find(|u| u.id.as_ref() == Some(id) && !u.is_deleted()) {
+                Some(existing) => { *existing = user.clone(); existing.id = Some(id.clone()); Ok(true) }
+                None => Ok(false),
+            }
+        }
+
+        async fn delete(&self, id: &UserId) -> DomainResult<bool> {
+            let mut users = self.users.lock().unwrap();
+            match users.iter_mut().find(|u| u.id.as_ref() == Some(id) && !u.is_deleted()) {
+                Some(user) => { user.deleted_at = Some(chrono::Utc::now()); Ok(true) }
+                None => Ok(false),
+            }
+        }
+
+        async fn count(&self) -> DomainResult<u64> {
+            Ok(self.users.lock().unwrap().iter().filter(|u| !u.is_deleted()).count() as u64)
+        }
     }
 
     fn service() -> UserService {
@@ -1342,112 +938,87 @@ mod tests {
 }
 ```
 
-Rules:
+- Aserciones de test obligatorias sobre `error.code()` (contrato público estable), nunca sobre cadenas de texto.
+- Fakes replican la semántica completa de base de datos (asignación de ID, filtro de soft-delete, retornos booleanos).
 
-- **The fake replicates the real adapter's semantics**, or the test proves
-  nothing: `create` assigns an ID, every read honours soft-delete, and
-  `update`/`delete` return `false` when nothing matched.
-- **Assert on `error.code()`, never on the message.** The code is the stable
-  contract; the message is free to change.
-- Name tests after the behaviour, not the method
-  (`deleted_user_is_invisible`, not `test_delete`).
-- `unwrap()` / `expect()` are allowed in tests — `clippy.toml` re-allows them
-  there, and only there.
+### 6.2 Tests HTTP de Integración Liviana
 
-**HTTP layer — drive the router.** `tower::ServiceExt::oneshot` (in
-`[dev-dependencies]`) sends a real request through the real layer stack. Use it
-for anything that lives in the middleware or the extractors — content
-negotiation, envelope shape, timeouts:
+Ejecución sobre el router Axum utilizando `tower::ServiceExt::oneshot`:
 
 ```rust
-let request = HttpRequest::post("/echo")
-    .header(header::CONTENT_TYPE, "application/vnd.msgpack")
-    .body(Body::from(payload))?;
-
-let response = test_app().oneshot(request).await?;
+let response = app_router().oneshot(
+    HttpRequest::post("/api/v1/users")
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(r#"{"name":"Ada","email":"ada@example.com"}"#))?
+).await?;
 assert_eq!(response.status(), StatusCode::OK);
 ```
 
-**What is already covered** — do not duplicate it, extend it:
-`domain/error.rs` (no infrastructure detail leaks into `public_message()`,
-severity mapping), `http_axum/server.rs` (msgpack in/out, envelope on rejection,
-request timeout), `server/middleware.rs` (`X-Cloud-Trace-Context` parsing),
-`shared/tracer/format.rs` (Cloud Logging JSON shape),
-`application/demo_user.rs` and `application/demo_order.rs` (the canonical
-fake-port suites).
-
-**What has no coverage yet** — good places to add: the Mongo repositories (need
-a live Mongo or a container), `application/demo_product.rs`, `shared/config.rs`,
-`shared/http_client.rs`.
-
 ---
 
-# 7. Quality gate
+## 7. Auditoría Automatizada e Invariantes de Compilación
 
-Run before every commit, in this order — cheapest first, so a formatting slip
-does not cost a compile. A red step stops the sequence: fix it, restart from
-step 1. Procedure and per-step fixes: `.agents/skills/quality-gate`.
+### 7.1 Expresiones Regulares de Verificación Arquitectónica
 
 ```bash
-cargo fmt --all -- --check          # 1. rustfmt.toml rules (max_width=100, edition 2024)
-cargo clippy --all-targets -- -D warnings   # 2. includes the unwrap/expect/dbg denies
-cargo sort --grouped --check        # 3. Cargo.toml dependency order
-cargo test --all-targets            # 4. tests
+# Fronteras de capas
+grep -rn "use crate::" src/domain --include="*.rs" | grep -v "use crate::domain"
+grep -rn "use crate::infrastructure" src/application --include="*.rs"
+grep -rn "use crate::application\|use crate::infrastructure::driving" src/infrastructure/driven --include="*.rs"
+grep -rn "use crate::infrastructure::driven" src/infrastructure/driving --include="*.rs"
+grep -rn "use crate::domain\|use crate::application\|use crate::infrastructure" src/shared --include="*.rs"
+
+# Fugas de tipos
+grep -rEn "\b\w+(Input|Output)\b" src/domain src/application --include="*.rs"
+grep -rn "ObjectId\|bson::" src/domain src/application src/infrastructure/driving --include="*.rs"
+grep -rEn "\b\w+Model\b" src/domain src/application src/infrastructure/driving --include="*.rs"
+
+# Persistencia y Soft-Delete
+grep -rn "delete_one\|delete_many\|find_one_and_delete\|drop(" src --include="*.rs"
+grep -rEn '"[a-z]+[A-Z][a-zA-Z]*"' src/infrastructure/driven/mongo --include="*.rs"
+
+# Errores y Logging
+cargo clippy --all-targets -- -D warnings 2>&1 | grep -i "unwrap\|expect"
+grep -n "message = err.to_string()\|message: err.to_string()" src/infrastructure/driving/http_axum/server/error.rs
+
+# Observabilidad
+grep -rn "TraceLayer" src --include="*.rs"
+grep -rn "reqwest::Client::new\|reqwest::ClientBuilder" src --include="*.rs" | grep -v "shared/http_client.rs"
+
+# Wiring y Casts
+grep -n "\.create_indexes(" src/main.rs | grep -v ":[0-9]*: *//"
+grep -rn "as Arc<dyn" src/ --include="*.rs" | grep -v ":[0-9]*: *//"
 ```
 
-`.github/workflows/ci.yml` runs exactly this on every push to `main` and every
-PR, plus a separate `cargo audit` job for RustSec advisories. The audit is a
-separate job on purpose: a new advisory is a different kind of signal and must
-not block the quality gate.
+_Salida esperada para todos los comandos: vacía._
 
-`RUSTFLAGS: -D warnings` is deliberately **not** set globally — it would also
-apply to dependency compilation, and a third-party warning would redden CI. The
-`-D warnings` that matters is passed explicitly to clippy.
+### 7.2 Secuencia Obligatoria de Quality Gate
 
-**Style enforcement is structural, not conventional:**
+```bash
+# 1. Formato estricto (rustfmt.toml: max_width=100, edition 2024)
+cargo fmt --all -- --check
 
-- `rustfmt.toml` — `max_width = 100`, `tab_spaces = 4`, `edition = "2024"`,
-  `use_small_heuristics = "Max"`.
-- `clippy.toml` — re-allows `unwrap`/`expect`/`dbg!` **in tests only**.
-- `[lints.clippy]` in `Cargo.toml` — **denies** `unwrap_used`, `expect_used`,
-  `dbg_macro`. Do not remove this section: without it, `clippy.toml`'s test
-  allowances configure lints that are never enabled, and the "no unwrap" rule
-  silently becomes a suggestion.
+# 2. Lints con denegación de warnings y antipatrones
+cargo clippy --all-targets -- -D warnings
 
-Never edit a config file to make failing code pass. Never `#[allow]` in
-production code without a one-line comment explaining the constraint.
+# 3. Orden alfabético y agrupado en Cargo.toml
+cargo sort --grouped --check
 
-**Cargo.toml hygiene.** The crate declares only dependencies it actually
-imports. The definitive test is `cargo check` — if it compiles without the
-dependency, the dependency does not belong. Test-only dependencies go in
-`[dev-dependencies]`. Run `cargo sort -g` after any dependency change.
+# 4. Suite completa de pruebas
+cargo test --all-targets
 
-## Definition of done
+# 5. Compilación del workspace
+cargo check
+```
 
-- [ ] The quality gate is green, all four steps.
-- [ ] Layer boundaries hold (§2.1) — `.agents/skills/architecture-audit` passes.
-- [ ] Every new repository query filters on `deleted_at`, and every new
-      filtered/sorted field has an index in the repository's private
-      `create_indexes()` — which `new` calls, so `main.rs` stays clean.
-- [ ] Every new public service method has `#[tracing::instrument]` with at least
-      one field.
-- [ ] Every new external error is mapped to a `DomainError`.
-- [ ] A new entity registered at all 7 points (§3.10).
-- [ ] New behaviour has a test asserting on `code()`, not on message text.
-- [ ] A new environment variable is in `.env.example` **and** in the §5 table.
-- [ ] An invariant that changed is updated **here first**, then propagated to the
-      affected skills in the same PR — never the other way around.
+### 7.3 Criterios de Completitud (Definition of Done)
 
----
-
-# 8. How to respond
-
-1. One line stating the architectural decision.
-2. Code in dependency order: `domain` → `application` → `driven` → `driving` →
-   `main.rs`.
-3. Trade-offs only when the complexity warrants them.
-4. Name what you did not verify. "Compiles" and "tested" are different claims;
-   do not merge them.
-
-Flag missing context, anticipate edge cases and propose shortcuts — but respect
-the existing architecture and do not rewrite what was not asked for.
+- Quality Gate verificado y en verde en los 5 pasos.
+- Fronteras de capas y confinamiento de tipos verificados por auditoría.
+- Toda lectura y conteo en repositorios filtra `"deleted_at": { "$exists": false }`.
+- Creación de índices encapsulada privadamente en `Repository::new`.
+- Métodos públicos de servicio instrumentados con `#[tracing::instrument]` y al menos un campo de contexto.
+- Errores externos mapeados exclusivamente a variantes de `DomainError`.
+- Entidades nuevas registradas en los 7 puntos obligatorios.
+- Aserciones de test realizadas sobre `error.code()`.
+- Variables de entorno nuevas documentadas en `.env.example` y `shared/config.rs`.
