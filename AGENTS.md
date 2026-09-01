@@ -1,9 +1,9 @@
 # Memoria de Arquitectura — Rust Hexagonal Template
 
 ```
-[ driving: axum 0.8 ] ──> [ application: use-cases ] ──> [ domain: core ] <── [ driven: mongo 3.8 / redis 1 ]
-                                 │
-                                 └──> [ shared: config / tracer / http_client ]
+[ driving: HTTP (Axum) ] ──> [ application: use-cases ] ──> [ domain: core ] <── [ driven: MongoDB / Redis ]
+                                   │
+                                   └──> [ shared: config / tracer / http_client ]
 ```
 
 ---
@@ -18,25 +18,23 @@ El sistema separa estrictamente la memoria técnica de la memoria de negocio:
 - **`PROJECT.md`**: Fuente de verdad única para las reglas de negocio, modelos conceptuales del dominio, políticas comerciales, estados y restricciones funcionales.
 - **Protocolo de Consulta de Negocio**: Antes de implementar cualquier caso de uso o lógica de dominio, se debe consultar `PROJECT.md`. Ante reglas no especificadas o ambiguas, se consulta al usuario y se actualiza `PROJECT.md`.
 
-### 1.1 Stack Tecnológico y Dependencias Fijadas
+### 1.1 Stack Tecnológico, Descubrimiento Dinámico y Evolución
 
-- **Rust**: Edición 2024 (soporte activo de let-chains: `if let … && let …`).
-- **Paquete Cargo**: Crate único binario llamado `service` (`src/main.rs`).
-- **HTTP / Runtime Asíncrono**: `axum 0.8`, `tokio 1` (full), `tower-http 0.7` (cors, compression-gzip, decompression-gzip).
-- **Persistencia**: `mongodb 3.8` (bson-3, rustls-tls, dns-resolver, opentelemetry), `bson 3`, `redis 1` (aio, tokio-comp).
-- **Observabilidad**: `opentelemetry` / `opentelemetry_sdk` / `opentelemetry-semantic-conventions` **0.32**, `tracing-opentelemetry 0.33`, `opentelemetry-gcloud-trace 0.24`, `tracing 0.1`, `tracing-subscriber 0.3`.
-- **HTTP Saliente**: `reqwest 0.13` (rustls, http2, json), `reqwest-middleware 0.5`, `reqwest-tracing 0.7` (`opentelemetry_0_32`).
-- **Serialización**: `serde 1`, `serde_json 1`, `rmp-serde 1.3` (MessagePack), `erased-serde 0.4`.
-- **Validación**: `validator 0.20` (derive).
-- **Errores y Utilidades**: `thiserror 2`, `anyhow 1` (restringido a bootstrap de tracer en `shared/tracer.rs`), `uuid 1` (v7), `chrono 0.4`, `dotenvy`, `futures`, `rustls 0.23`.
-- **Testing**: `tower 0.5` (util, `ServiceExt::oneshot`).
-
-> **Restricción OpenTelemetry**: `mongodb 3.8` depende internamente de `opentelemetry 0.31`. La aplicación utiliza `0.32`. No se admite registrar un segundo provider.
+- **Rust**: Edición actual configurada en `Cargo.toml`.
+- **Paquete Cargo**: Crate binario llamado `service` (`src/main.rs`).
+- **Descubrimiento Dinámico de Dependencias (Cero Sesgo de Versión)**: La fuente de verdad única para las librerías activas, sus versiones y sus features es `Cargo.toml` y `Cargo.lock`. El agente debe inspeccionar los manifiestos y el código real antes de asumir firmas o capacidades de cualquier dependencia.
+- **Evolución y Sugerencias Proactivas**: El agente no está atado a versiones o librerías fijas; tiene la capacidad y libertad de sugerir mejoras, actualizaciones de crates o adopción de nuevas librerías cuando aporten beneficios técnicos claros (rendimiento, seguridad, ergonomía, compatibilidad), evaluando siempre los trade-offs y verificando la compatibilidad en el workspace.
+- **Capacidades Base del Stack**:
+  - **HTTP / Runtime Asíncrono**: `axum`, `tokio` (full), `tower-http` (cors, compresión/descompresión gzip).
+  - **Persistencia**: `mongodb` (BSON, TLS, DNS resolver, instrumentación), `redis` (operaciones asíncronas).
+  - **Observabilidad**: `tracing`, `tracing-subscriber`, `opentelemetry`, `tracing-opentelemetry`, exportador de trazas GCP.
+  - **HTTP Saliente**: `reqwest` (cliente instrumentado con middleware de tracing).
+  - **Serialización y Validación**: `serde`, `serde_json`, `rmp-serde` (MessagePack), `validator`.
+  - **Manejo de Errores y Utilidades**: `thiserror`, `anyhow` (restringido a bootstrap en `shared/tracer.rs`), `uuid`, `chrono`, `dotenvy`, `futures`, `rustls`.
 
 ### 1.2 Clasificación y Semántica de Símbolos
 
 - **Prefijo `Demo*`**: Entidades y servicios de referencia descartables (`DemoUser`, `DemoProduct`, `DemoOrder`, `DemoPricingService`). Se eliminan al inicializar un servicio productivo.
-- **Prefijo `Fake*`**: Dobles de prueba en memoria sobre puertos de dominio (`FakeDemoUserRepository`). Permanentes en suites de test.
 - **Símbolos de Producción**: Nombres directos en singular sin prefijos tecnológicos ni de dominio (`User`, `Order`, `UserRepositoryPort`, `CreateUserInput`, `UserModel`, `UserRepository`).
 
 ### 1.3 Taxonomía de Archivos y Responsabilidades
@@ -154,9 +152,10 @@ $$\text{driving/http\_axum} \longrightarrow \text{application} \longrightarrow \
 12. **Construcción manual de JSON en respuestas**: Prohibida. Toda respuesta usa `GenericApiResponse::{success, paginated, error}`.
 13. **`TryFrom` para entidad $\leftrightarrow$ modelo**: Prohibido. Se implementa `From` en ambas direcciones resolviendo IDs no válidos en silencio.
 14. **Archivos `foo/mod.rs`**: Prohibidos (salvo los dos preexistentes). Se usa la convención `foo.rs` junto al directorio `foo/`.
-15. **Sintaxis de rutas Axum con dos puntos (`:id`)**: Prohibida en Axum 0.8. Se utiliza `{id}`.
+15. **Sintaxis de rutas Axum con dos puntos (`:id`)**: Prohibida en Axum. Se utiliza `{id}`.
 16. **Llamadas a `create_indexes()` en `main.rs`**: Prohibidas. El constructor `Repository::new(&db).await` encapsula la creación de índices.
 17. **Casts explícitos de traits (`repo as Arc<dyn ...>`)**: Prohibidos. Rust realiza la coerción implícita de `Arc<Concrete>` a `Arc<dyn Trait>`.
+18. **Creación no solicitada de Mocks, Fakes o Tests**: Prohibida terminantemente. No crear dobles de prueba (mocks, fakes, stubs) ni nuevos archivos de pruebas salvo que el usuario lo solicite de forma explícita en su instrucción.
 
 ---
 
@@ -871,86 +870,26 @@ $$\text{CORS} \rightarrow \text{DefaultBodyLimit} \rightarrow \text{Decompressio
 
 ---
 
-## 6. Esquema de Pruebas y Dobles en Memoria
+## 6. Esquema de Pruebas y Validación
 
-### 6.1 Fakes en Memoria para Servicios de Aplicación
+### 6.1 Política Estricta: Cero Mocks / Fakes sin Petición Explícita
 
-Los tests de servicios residen en `#[cfg(test)] mod tests` en el mismo archivo utilizando fakes sobre el trait del puerto:
+- **Invariante Absoluta**: **El agente NO debe crear mocks, fakes, stubs, dobles de prueba ni nuevos archivos de test sin una petición explícita y directa del usuario.**
+- **Preservación de Pruebas Existentes**: Los tests existentes en el repositorio deben seguir compilando y pasando (`cargo test`). No se deben alterar ni relajar para ocultar errores; corregir el código subyacente ante cualquier fallo.
+- **Tests Bajo Demanda Expresa**: Únicamente cuando el usuario solicite explícitamente la creación de pruebas unitarias para un servicio, se implementarán en un módulo `#[cfg(test)] mod tests` en el mismo archivo, implementando el trait del puerto correspondiente para pruebas en memoria, con aserciones sobre `error.code()` y preservando la semántica de dominio.
+
+### 6.2 Tests HTTP de Integración Liviana (Bajo Demanda)
+
+En caso de ser requeridos expresamente por el usuario, se ejecutan sobre el router Axum utilizando `tower::ServiceExt::oneshot`:
 
 ```rust
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::sync::Mutex;
-
-    #[derive(Default)]
-    struct FakeUserRepository {
-        users: Mutex<Vec<User>>,
-    }
-
-    #[async_trait::async_trait]
-    impl UserRepositoryPort for FakeUserRepository {
-        async fn create(&self, user: &User) -> DomainResult<UserId> {
-            let mut users = self.users.lock().unwrap();
-            let id = UserId::new(format!("{:024x}", users.len() + 1));
-            let mut stored = user.clone();
-            stored.id = Some(id.clone());
-            users.push(stored);
-            Ok(id)
-        }
-
-        async fn find_by_id(&self, id: &UserId) -> DomainResult<Option<User>> {
-            Ok(self.users.lock().unwrap().iter().find(|u| u.id.as_ref() == Some(id) && !u.is_deleted()).cloned())
-        }
-
-        async fn find_by_email(&self, email: &str) -> DomainResult<Option<User>> {
-            Ok(self.users.lock().unwrap().iter().find(|u| u.email == email && !u.is_deleted()).cloned())
-        }
-
-        async fn find_all(&self, _p: Pagination) -> DomainResult<Vec<User>> {
-            Ok(self.users.lock().unwrap().iter().filter(|u| !u.is_deleted()).cloned().collect())
-        }
-
-        async fn update(&self, id: &UserId, user: &User) -> DomainResult<bool> {
-            let mut users = self.users.lock().unwrap();
-            match users.iter_mut().find(|u| u.id.as_ref() == Some(id) && !u.is_deleted()) {
-                Some(existing) => { *existing = user.clone(); existing.id = Some(id.clone()); Ok(true) }
-                None => Ok(false),
-            }
-        }
-
-        async fn delete(&self, id: &UserId) -> DomainResult<bool> {
-            let mut users = self.users.lock().unwrap();
-            match users.iter_mut().find(|u| u.id.as_ref() == Some(id) && !u.is_deleted()) {
-                Some(user) => { user.deleted_at = Some(chrono::Utc::now()); Ok(true) }
-                None => Ok(false),
-            }
-        }
-
-        async fn count(&self) -> DomainResult<u64> {
-            Ok(self.users.lock().unwrap().iter().filter(|u| !u.is_deleted()).count() as u64)
-        }
-    }
-
-    fn service() -> UserService {
-        UserService::new(Arc::new(FakeUserRepository::default()))
-    }
-
-    #[tokio::test]
-    async fn create_user_rejects_duplicate_email() {
-        let service = service();
-        service.create_user("Ada", "ada@example.com").await.unwrap();
-
-        let error = service.create_user("Ada II", "ada@example.com").await.unwrap_err();
-        assert_eq!(error.code(), "ALREADY_EXISTS");
-    }
-}
+let response = app_router().oneshot(
+    HttpRequest::post("/api/v1/users")
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(r#"{"name":"Ada","email":"ada@example.com"}"#))?
+).await?;
+assert_eq!(response.status(), StatusCode::OK);
 ```
-
-- Aserciones de test obligatorias sobre `error.code()` (contrato público estable), nunca sobre cadenas de texto.
-- Fakes replican la semántica completa de base de datos (asignación de ID, filtro de soft-delete, retornos booleanos).
-
-### 6.2 Tests HTTP de Integración Liviana
 
 Ejecución sobre el router Axum utilizando `tower::ServiceExt::oneshot`:
 
@@ -1029,5 +968,6 @@ cargo check
 - Métodos públicos de servicio instrumentados con `#[tracing::instrument]` y al menos un campo de contexto.
 - Errores externos mapeados exclusivamente a variantes de `DomainError`.
 - Entidades nuevas registradas en los 7 puntos obligatorios.
-- Aserciones de test realizadas sobre `error.code()`.
+- Aserciones de test realizadas sobre `error.code()` (cuando aplique por tests solicitados o preexistentes).
+- Cero mocks, fakes o dobles de prueba creados a menos que hayan sido solicitados expresamente.
 - Variables de entorno nuevas documentadas en `.env.example` y `shared/config.rs`.
