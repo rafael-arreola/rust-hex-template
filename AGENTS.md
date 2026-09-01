@@ -10,6 +10,14 @@
 
 ## 1. Ontología y Taxonomía del Sistema
 
+### 1.0 Fuentes de Verdad y Separación de Contextos
+
+El sistema separa estrictamente la memoria técnica de la memoria de negocio:
+
+- **`AGENTS.md`**: Fuente de verdad única para la arquitectura técnica, tipos universales, contratos de compilación, transporte, observabilidad, scaffolding y calidad.
+- **`PROJECT.md`**: Fuente de verdad única para las reglas de negocio, modelos conceptuales del dominio, políticas comerciales, estados y restricciones funcionales.
+- **Protocolo de Consulta de Negocio**: Antes de implementar cualquier caso de uso o lógica de dominio, se debe consultar `PROJECT.md`. Ante reglas no especificadas o ambiguas, se consulta al usuario y se actualiza `PROJECT.md`.
+
 ### 1.1 Stack Tecnológico y Dependencias Fijadas
 
 - **Rust**: Edición 2024 (soporte activo de let-chains: `if let … && let …`).
@@ -36,7 +44,8 @@
 Estructura de módulos según la convención de Rust donde el módulo padre `foo.rs` coexiste junto al directorio `foo/` (sin archivos `mod.rs`, salvo los preexistentes `src/domain/services/mod.rs` y `src/application/shared/mod.rs`):
 
 ```
-AGENTS.md                                              Constitución y memoria de arquitectura
+AGENTS.md                                              Constitución y memoria de arquitectura técnica
+PROJECT.md                                             Memoria de negocio, dominio, políticas y flujos funcionales
 CLAUDE.md / GEMINI.md                                  Symlinks canónicos a AGENTS.md
 Cargo.toml                                             Configuración de paquete, dependencias y [lints.clippy]
 build/Dockerfile, build/cloudbuild.yaml                Empaquetado y despliegue en GCP
