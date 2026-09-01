@@ -39,7 +39,11 @@ El sistema separa estrictamente la memoria técnica de la memoria de negocio:
 
 ### 1.3 Taxonomía de Archivos y Responsabilidades
 
-Estructura de módulos según la convención de Rust donde el módulo padre `foo.rs` coexiste junto al directorio `foo/` (sin archivos `mod.rs`, salvo los preexistentes `src/domain/services/mod.rs` y `src/application/shared/mod.rs`):
+Organización flexible de módulos según la estructura y cohesión del código:
+
+- **Convención `foo.rs` junto a `foo/` (Rust 2018 / Módulos abiertos o de enrutamiento)**: Preferente para enrutadores de capas y raíces donde se evita la ambigüedad de múltiples archivos `mod.rs` en editores (ej. `src/domain.rs` + `src/domain/`, `src/domain/entities.rs` + `src/domain/entities/`).
+- **Convención `foo/mod.rs` (Módulos autocontenidos o subpaquetes cohesivos)**: Válida y recomendada cuando el directorio conforma una unidad encapsulada con lógica interna, sub-flujos o servicios agrupados (ej. `src/domain/services/mod.rs`, `src/application/shared/mod.rs`).
+- **Invariante de consistencia**: Mantener coherencia en el mismo nivel jerárquico o subárbol (evitar mezclar estilos arbitrariamente dentro de un mismo módulo).
 
 ```
 AGENTS.md                                              Constitución y memoria de arquitectura técnica
@@ -151,7 +155,7 @@ $$\text{driving/http\_axum} \longrightarrow \text{application} \longrightarrow \
 11. **`#[tracing::instrument]` sin `fields(...)`**: Todo método público de servicio debe declarar campos de correlación (`%id`, `%email`).
 12. **Construcción manual de JSON en respuestas**: Prohibida. Toda respuesta usa `GenericApiResponse::{success, paginated, error}`.
 13. **`TryFrom` para entidad $\leftrightarrow$ modelo**: Prohibido. Se implementa `From` en ambas direcciones resolviendo IDs no válidos en silencio.
-14. **Archivos `foo/mod.rs`**: Prohibidos (salvo los dos preexistentes). Se usa la convención `foo.rs` junto al directorio `foo/`.
+14. **Inconsistencia arbitraria en organización de módulos**: Se debe elegir la mejor opción según la estructura (`foo.rs` junto a `foo/` para enrutadores y módulos abiertos; `foo/mod.rs` para directorios/subpaquetes autocontenidos y cohesivos), manteniendo siempre uniformidad y consistencia dentro del mismo subárbol o nivel jerárquico.
 15. **Sintaxis de rutas Axum con dos puntos (`:id`)**: Prohibida en Axum. Se utiliza `{id}`.
 16. **Llamadas a `create_indexes()` en `main.rs`**: Prohibidas. El constructor `Repository::new(&db).await` encapsula la creación de índices.
 17. **Casts explícitos de traits (`repo as Arc<dyn ...>`)**: Prohibidos. Rust realiza la coerción implícita de `Arc<Concrete>` a `Arc<dyn Trait>`.
@@ -737,7 +741,7 @@ Orden estricto de creación y compilación:
 
 ### 4.3 Scaffolding de Domain Service
 
-- Archivo: `src/domain/services/{service}.rs` + registro `pub mod {service};` en `src/domain/services/mod.rs`.
+- Archivo: `src/domain/services/{service}.rs` + registro `pub mod {service};` en `src/domain/services/mod.rs` (o `src/domain/services.rs` según la convención del módulo).
 - Estructura: Struct unitario `pub struct {Service};` con `new() -> Self` e `impl Default`.
 - Inyección: Campo directo por valor en `{Entity}Service::new()` (sin inyección `Arc`).
 
