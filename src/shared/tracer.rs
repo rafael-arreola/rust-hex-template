@@ -1,127 +1,84 @@
 pub mod format;
 
-use crate::shared::config;
+use crate::shared::envs;
 use opentelemetry::global;
 use opentelemetry::trace::TracerProvider as _;
 use opentelemetry_gcloud_trace::GcpCloudTraceExporterBuilder;
-use opentelemetry_sdk::propagation::TraceContextPropagator;
+use opentelemetry_sdk::{Resource, error, propagation, trace};
+use std::time::Duration;
+use tokio::time;
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt};
 
-/// Handle to the tracer provider, returned by [`init_tracing`].
-///
-/// The exporter batches spans in memory; without an explicit shutdown the
-/// spans buffered during the final moments of the process (e.g. the drain on
-/// deploy) are lost. `main.rs` keeps this guard and calls [`shutdown`] after
-/// the server exits.
-///
-/// [`shutdown`]: TracerGuard::shutdown
 pub struct TracerGuard {
-    provider: opentelemetry_sdk::trace::SdkTracerProvider,
+    provider: trace::SdkTracerProvider,
 }
 
 impl TracerGuard {
-    /// Flushes buffered spans and shuts down the exporter pipeline.
-    pub fn shutdown(&self) {
-        if let Err(e) = self.provider.shutdown() {
-            eprintln!("Tracer provider shutdown failed: {}", e);
-        }
+    pub fn shutdown(self) -> error::OTelSdkResult {
+        self.provider.shutdown()
     }
 }
 
-pub async fn init_tracing() -> anyhow::Result<TracerGuard> {
-    let config = config::get();
-    let service_name = &config.service_name;
-    let base_level = &config.debug_level;
-    let project_id = &config.project_id;
-    let service_env = &config.service_env;
-    let version = env!("CARGO_PKG_VERSION");
-
-    // W3C trace context propagation (traceparent/tracestate). Required so the
-    // HTTP middleware can join traces propagated by upstream services.
-    global::set_text_map_propagator(TraceContextPropagator::new());
-
-    let env_filter = EnvFilter::new(format!(
+pub async fn init_tracing() -> Result<TracerGuard, &'static str> {
+    let env = envs::get();
+    let env_filter = EnvFilter::try_new(format!(
         "h2=warn,hyper=warn,tokio_util=warn,tower_http=warn,rig=warn,axum=warn,{}",
-        base_level
-    ));
+        env.debug_level
+    ))
+    .map_err(|_| "Invalid environment variable DEBUG_LEVEL")?;
 
-    let guard = match build_gcp_tracer(service_name, project_id, service_env, version).await {
-        Ok((tracer, provider)) => {
-            let cloud_logging_layer = tracing_subscriber::fmt::layer()
-                .event_format(format::CloudLoggingFormat::new(project_id.clone()))
-                .fmt_fields(tracing_subscriber::fmt::format::JsonFields::new());
+    let mut resource_builder = Resource::builder_empty().with_attributes([
+        opentelemetry::KeyValue::new("service.name", env.service_name.clone()),
+        opentelemetry::KeyValue::new("service.version", env!("CARGO_PKG_VERSION")),
+        opentelemetry::KeyValue::new("deployment.environment", env.service_env.clone()),
+    ]);
+    if !env.project_id.is_empty() {
+        resource_builder = resource_builder
+            .with_attribute(opentelemetry::KeyValue::new("project.id", env.project_id.clone()));
+    }
+    let resource = resource_builder.build();
 
-            let subscriber = tracing_subscriber::registry()
-                .with(env_filter)
-                .with(tracing_opentelemetry::layer().with_tracer(tracer))
-                .with(cloud_logging_layer);
-
-            tracing::subscriber::set_global_default(subscriber)
-                .map_err(|e| anyhow::anyhow!("Setting default subscriber failed: {}", e))?;
-
-            TracerGuard { provider }
-        }
-        Err(e) => {
-            // Local fallback: plain fmt logs plus an in-process tracer with no
-            // exporter, so every request span still carries a valid trace_id.
-            let provider = opentelemetry_sdk::trace::SdkTracerProvider::builder().build();
-            let tracer = provider.tracer(service_name.clone());
-            global::set_tracer_provider(provider.clone());
-
-            let subscriber = tracing_subscriber::registry()
-                .with(env_filter)
-                .with(tracing_subscriber::fmt::layer())
-                .with(tracing_opentelemetry::layer().with_tracer(tracer));
-
-            tracing::subscriber::set_global_default(subscriber)
-                .map_err(|e| anyhow::anyhow!("Setting default subscriber failed: {}", e))?;
-
-            tracing::warn!(
-                "GCP trace exporter unavailable ({}); falling back to local fmt logging",
-                e
-            );
-
-            TracerGuard { provider }
+    let (provider, exporter_failed) = if env.project_id.is_empty() {
+        (provider_builder(resource).build(), false)
+    } else {
+        let exporter_builder = GcpCloudTraceExporterBuilder::new(env.project_id.clone())
+            .with_resource(resource.clone());
+        let exporter =
+            exporter_builder.create_provider_from_builder(provider_builder(resource.clone()));
+        match time::timeout(Duration::from_secs(10), exporter).await {
+            Ok(Ok(provider)) => (provider, false),
+            Ok(Err(_)) | Err(_) => (provider_builder(resource).build(), true),
         }
     };
+    let tracer = provider.tracer(env.service_name.clone());
+    let cloud_logging_layer = tracing_subscriber::fmt::layer()
+        .event_format(format::CloudLoggingFormat::new(env.project_id.clone()))
+        .fmt_fields(tracing_subscriber::fmt::format::JsonFields::new());
 
-    Ok(guard)
-}
+    let subscriber = tracing_subscriber::registry()
+        .with(env_filter)
+        .with(tracing_opentelemetry::layer().with_tracer(tracer))
+        .with(cloud_logging_layer);
 
-async fn build_gcp_tracer(
-    service_name: &str,
-    project_id: &str,
-    service_env: &str,
-    version: &str,
-) -> anyhow::Result<(opentelemetry_sdk::trace::Tracer, opentelemetry_sdk::trace::SdkTracerProvider)>
-{
-    let builder = GcpCloudTraceExporterBuilder::for_default_project_id()
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to initialize GCP exporter builder: {}", e))?
-        .with_resource(
-            opentelemetry_sdk::Resource::builder()
-                .with_attributes(vec![
-                    opentelemetry::KeyValue::new("service.name", service_name.to_string()),
-                    opentelemetry::KeyValue::new("service.version", version.to_string()),
-                    opentelemetry::KeyValue::new("deployment.environment", service_env.to_string()),
-                    opentelemetry::KeyValue::new("project.id", project_id.to_string()),
-                ])
-                .build(),
-        );
+    if tracing::subscriber::set_global_default(subscriber).is_err() {
+        provider
+            .shutdown()
+            .map_err(|_| "Failed to initialize tracing subscriber and shut down tracer provider")?;
+        return Err("Failed to initialize tracing subscriber");
+    }
 
-    let provider = builder
-        .create_provider()
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to create tracer provider: {}", e))?;
-
-    let tracer = builder
-        .install(&provider)
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to create tracer: {}", e))?;
-
-    // Register as the global provider so instrumented libraries (e.g. the
-    // MongoDB driver) attach their spans to the same traces.
+    global::set_text_map_propagator(propagation::TraceContextPropagator::new());
     global::set_tracer_provider(provider.clone());
 
-    Ok((tracer, provider))
+    if exporter_failed {
+        tracing::warn!("Cloud Trace exporter initialization failed; using local tracing");
+    }
+
+    Ok(TracerGuard { provider })
+}
+
+fn provider_builder(resource: Resource) -> trace::TracerProviderBuilder {
+    trace::SdkTracerProvider::builder()
+        .with_resource(resource)
+        .with_sampler(trace::Sampler::ParentBased(Box::new(trace::Sampler::AlwaysOn)))
 }

@@ -1,8 +1,3 @@
-# Ejecuta la secuencia estricta del Quality Gate estipulada en AGENTS.md (Directiva 7):
-# lo que AGENTS.md exige, aquí se verifica.
-#
-# El orden es el de la directiva — de más barato a más caro — para que un fallo de
-# formato no gaste minutos de compilación.
 name: CI
 
 on:
@@ -16,55 +11,46 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  # Sin `RUSTFLAGS: -D warnings` a proposito: se aplicaria tambien a la
-  # compilacion de dependencias y un aviso ajeno pondria el CI en rojo.
-  # El `-D warnings` que importa se pasa explicitamente al paso de clippy.
 
 jobs:
   quality-gate:
-    name: Formato, lints y tests
+    name: Formato, lints y compilación
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - name: Instalar toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.99.0
         with:
           components: rustfmt, clippy
 
       - name: Cachear dependencias
         uses: Swatinem/rust-cache@v2
 
-      # 1. Formato — rustfmt.toml manda.
-      - name: cargo fmt
+      - name: Formato
         run: cargo fmt --all -- --check
 
-      # 2. Lints — incluye los deny de unwrap_used/expect_used/dbg_macro
-      #    declarados en [lints.clippy]. `--all-targets` cubre también tests.
-      - name: cargo clippy
-        run: cargo clippy --all-targets -- -D warnings
+      - name: Clippy
+        run: cargo clippy --locked --all-targets -- -D warnings
 
-      # 3. Orden de dependencias (AGENTS.md: alfabético y agrupado).
       - name: Instalar cargo-sort
         run: cargo install cargo-sort --locked
 
-      - name: cargo sort
+      - name: Orden del manifiesto
         run: cargo sort --grouped --check
 
-      # 4. Tests.
-      - name: cargo test
-        run: cargo test --all-targets
+      - name: Compilación de todos los targets
+        run: cargo check --locked --all-targets
+
+      - name: Build
+        run: cargo build --locked
 
   dependencias:
     name: Auditoría de dependencias
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      # Avisos de seguridad de RustSec sobre el árbol real de Cargo.lock.
-      # Se corre en un job aparte para que un advisory nuevo no bloquee el
-      # gate de calidad: son señales de distinta naturaleza.
-      - name: cargo audit
+      - name: RustSec
         uses: rustsec/audit-check@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}

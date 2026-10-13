@@ -1,9 +1,9 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+use crate::domain::core::values;
 use crate::domain::entities::demo_product::DemoProductId;
 use crate::domain::entities::demo_user::DemoUserId;
-use crate::domain::values;
 
 pub struct DemoOrderMarker;
 pub type DemoOrderId = values::DomainId<DemoOrderMarker>;

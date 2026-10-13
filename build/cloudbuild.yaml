@@ -1,6 +1,12 @@
-# La suite de tests corre dentro de build/Dockerfile (etapa builder), asi que
-# este paso falla y aborta el deploy si algun test esta en rojo. El gate
-# completo de calidad (fmt, clippy, sort, audit) vive en .github/workflows/ci.yml.
+# Pipeline de CI/CD para Google Cloud Build:
+# 1. Construye la imagen con Buildx y caché remota en Artifact Registry. La etapa builder de
+#    build/Dockerfile exige `cargo fmt --check`; el gate completo (clippy, sort, RustSec) vive en
+#    .github/workflows/ci.yml.
+# 2. Despliega en Cloud Run detrás del balanceador, dentro de la VPC compartida.
+#
+# Substitutions que debe definir el trigger: _SERVICE_NAME, _MONGO_DB, _MONGO_URL (secreto de
+# Secret Manager, p. ej. `mongo-url:latest`), _VPC_CONNECTOR y _VPC_CONNECTOR_SUBNET.
+# PORT no se declara: Cloud Run lo reserva e inyecta el suyo.
 steps:
   - id: "Building container image"
     name: "gcr.io/cloud-builders/docker"
@@ -8,10 +14,11 @@ steps:
     args:
       - -c
       - |
-        docker buildx create --use &&
+        set -euo pipefail
+        docker buildx create --use
         docker buildx build \
           --cache-from=type=registry,ref=us-docker.pkg.dev/$PROJECT_ID/artifacts/$_CACHE:cache \
-          --cache-to=type=registry,ref=us-docker.pkg.dev/$PROJECT_ID/artifacts/$_CACHE:cache,mode=max \
+          --cache-to=type=registry,ref=us-docker.pkg.dev/$PROJECT_ID/artifacts/$_CACHE:cache,mode=max,compression=zstd,compression-level=3 \
           --push \
           -t us-docker.pkg.dev/$PROJECT_ID/artifacts/$_SERVICE_NAME:$COMMIT_SHA \
           -f build/Dockerfile .
@@ -24,6 +31,10 @@ steps:
       - "deploy"
       - "$_SERVICE_NAME"
       - "--image=us-docker.pkg.dev/$PROJECT_ID/artifacts/$_SERVICE_NAME:$COMMIT_SHA"
+      # Solo alcanzable vía balanceador (Cloud Armor), no desde la URL pública *.run.app
+      - "--ingress=internal-and-cloud-load-balancing"
+      - "--network=projects/$_VPC_HOST_PROJECT/global/networks/$_VPC_CONNECTOR"
+      - "--subnet=projects/$_VPC_HOST_PROJECT/regions/$_REGION/subnetworks/$_VPC_CONNECTOR_SUBNET"
       - "--service-account=$SERVICE_ACCOUNT_EMAIL"
       - "--region=$_REGION"
       - "--platform=managed"
@@ -34,15 +45,19 @@ steps:
       - "--set-env-vars=SERVICE_NAME=$_SERVICE_NAME"
       - "--set-env-vars=PROJECT_ID=$PROJECT_ID"
       - "--set-env-vars=DEBUG_LEVEL=$_DEBUG_LEVEL"
-      # env vars from substitutions
+
+      # database (mongodb)
       - "--set-env-vars=MONGO_DB=$_MONGO_DB"
       - "--set-secrets=^##^MONGO_URL=$_MONGO_URL"
 
 substitutions:
-  _CACHE: "service-name-cache"
+  _CACHE: "${_SERVICE_NAME}-cache"
   _SERVICE_ENV: "PRD"
+  _DEBUG_LEVEL: "info"
   _REGION: "us-central1"
+  _VPC_HOST_PROJECT: "shared-resources-451520"
 
 options:
+  dynamicSubstitutions: true
   machineType: E2_HIGHCPU_32
   logging: CLOUD_LOGGING_ONLY

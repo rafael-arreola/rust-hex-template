@@ -1,0 +1,16 @@
+.git
+.github
+.progress
+target
+.env*
+**/.env*
+**/*.pem
+**/*.key
+**/*.p12
+**/*.pfx
+**/*credentials*.json
+**/*service-account*.json
+secrets
+.DS_Store
+# Documentation never reaches the image; excluding it keeps doc edits from busting the build cache
+*.md

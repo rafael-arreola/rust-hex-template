@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::domain::values;
+use crate::domain::core::values;
 
 pub struct DemoProductMarker;
 pub type DemoProductId = values::DomainId<DemoProductMarker>;
