@@ -4,6 +4,7 @@ use crate::domain::entities::demo_product::{DemoProduct, DemoProductId, DemoProd
 use crate::domain::port::repositories::demo_product::DemoProductRepositoryPort;
 use crate::infrastructure::persistence::mongo::{
     delete_by_id, demo_product::model::DemoProductModel, error, find_by_id, insert_one, paginate,
+    primary_collection,
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -13,6 +14,8 @@ use mongodb::{
     options::IndexOptions,
 };
 
+const ENTITY: &str = "DemoProduct";
+
 #[derive(Clone)]
 pub struct DemoProductRepository {
     collection: Collection<DemoProductModel>,
@@ -20,7 +23,7 @@ pub struct DemoProductRepository {
 
 impl DemoProductRepository {
     pub async fn new(db: &Database) -> DomainResult<Self> {
-        let repo = Self { collection: db.collection::<DemoProductModel>("products") };
+        let repo = Self { collection: primary_collection(db, "products") };
         repo.create_indexes().await?;
         Ok(repo)
     }
@@ -39,10 +42,7 @@ impl DemoProductRepository {
                 .build(),
         ];
 
-        self.collection
-            .create_indexes(indexes)
-            .await
-            .map_err(|error| error::map(error, "DemoProduct"))?;
+        self.collection.create_indexes(indexes).await.map_err(|error| error::map(error, ENTITY))?;
 
         tracing::info!("✓ Products indexes created");
         Ok(())
@@ -53,17 +53,17 @@ impl DemoProductRepository {
 impl DemoProductRepositoryPort for DemoProductRepository {
     #[tracing::instrument(skip_all)]
     async fn create(&self, product: &DemoProduct) -> DomainResult<DemoProductId> {
-        insert_one(&self.collection, product, "DemoProduct").await
+        insert_one(&self.collection, product, ENTITY).await
     }
 
     #[tracing::instrument(skip_all)]
     async fn find_by_id(&self, id: &DemoProductId) -> DomainResult<Option<DemoProduct>> {
-        find_by_id(&self.collection, id, "DemoProduct").await
+        find_by_id(&self.collection, id, ENTITY).await
     }
 
     #[tracing::instrument(skip_all)]
     async fn find_all(&self, pagination: Pagination) -> DomainResult<PageResult<DemoProduct>> {
-        paginate(&self.collection, doc! {}, pagination, "DemoProduct").await
+        paginate(&self.collection, doc! {}, pagination, ENTITY).await
     }
 
     #[tracing::instrument(skip_all)]
@@ -73,7 +73,7 @@ impl DemoProductRepositoryPort for DemoProductRepository {
         metadata: &DemoProductMetadata,
         now: DateTime<Utc>,
     ) -> DomainResult<bool> {
-        let oid = error::parse_oid(id, "id", "DemoProduct")?;
+        let oid = error::parse_oid(id, "id", ENTITY)?;
         let bson_metadata = bson::serialize_to_bson(metadata).map_err(|_| {
             DomainError::new(
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -90,7 +90,7 @@ impl DemoProductRepositoryPort for DemoProductRepository {
                 doc! { "$set": { "metadata": bson_metadata, "updated_at": now } },
             )
             .await
-            .map_err(|error| error::map(error, "DemoProduct"))?;
+            .map_err(|error| error::map(error, ENTITY))?;
 
         Ok(result.matched_count > 0)
     }
@@ -111,7 +111,7 @@ impl DemoProductRepositoryPort for DemoProductRepository {
             .with_trace_code("INVALID_STOCK_QUANTITY"));
         }
 
-        let oid = error::parse_oid(id, "id", "DemoProduct")?;
+        let oid = error::parse_oid(id, "id", ENTITY)?;
         let now = bson::DateTime::from_chrono(now);
 
         // The `$gte` guard makes the availability check and decrement a single atomic operation.
@@ -122,7 +122,7 @@ impl DemoProductRepositoryPort for DemoProductRepository {
                 doc! { "$inc": { "stock": -quantity }, "$set": { "updated_at": now } },
             )
             .await
-            .map_err(|error| error::map(error, "DemoProduct"))?;
+            .map_err(|error| error::map(error, ENTITY))?;
 
         Ok(result.matched_count > 0)
     }
@@ -143,7 +143,7 @@ impl DemoProductRepositoryPort for DemoProductRepository {
             .with_trace_code("INVALID_STOCK_QUANTITY"));
         }
 
-        let oid = error::parse_oid(id, "id", "DemoProduct")?;
+        let oid = error::parse_oid(id, "id", ENTITY)?;
         let now = bson::DateTime::from_chrono(now);
 
         let result = self
@@ -153,13 +153,13 @@ impl DemoProductRepositoryPort for DemoProductRepository {
                 doc! { "$inc": { "stock": quantity }, "$set": { "updated_at": now } },
             )
             .await
-            .map_err(|error| error::map(error, "DemoProduct"))?;
+            .map_err(|error| error::map(error, ENTITY))?;
 
         Ok(result.matched_count > 0)
     }
 
     #[tracing::instrument(skip_all)]
     async fn delete(&self, id: &DemoProductId) -> DomainResult<bool> {
-        delete_by_id(&self.collection, id, "DemoProduct").await
+        delete_by_id(&self.collection, id, ENTITY).await
     }
 }

@@ -142,15 +142,6 @@ impl DemoOrderService {
         self.order_repo.find_all(pagination).await
     }
 
-    #[tracing::instrument(skip_all, fields(operation = "delete_order"))]
-    pub async fn delete_order(&self, id: &DemoOrderId) -> DomainResult<()> {
-        if !self.order_repo.delete(id).await? {
-            return Err(order_not_found(id));
-        }
-        tracing::info!("DemoOrder deleted");
-        Ok(())
-    }
-
     #[tracing::instrument(skip_all, fields(operation = "list_orders_by_user", page = pagination.page(), limit = pagination.limit()))]
     pub async fn list_orders_by_user(
         &self,
@@ -162,6 +153,15 @@ impl DemoOrderService {
         }
 
         self.order_repo.find_by_user_id(user_id, pagination).await
+    }
+
+    #[tracing::instrument(skip_all, fields(operation = "delete_order"))]
+    pub async fn delete_order(&self, id: &DemoOrderId) -> DomainResult<()> {
+        if !self.order_repo.delete(id).await? {
+            return Err(order_not_found(id));
+        }
+        tracing::info!("DemoOrder deleted");
+        Ok(())
     }
 }
 

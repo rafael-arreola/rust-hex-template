@@ -13,6 +13,8 @@ use mongodb::{
     options::IndexOptions,
 };
 
+const ENTITY: &str = "DemoUser";
+
 #[derive(Clone)]
 pub struct DemoUserRepository {
     collection: Collection<DemoUserModel>,
@@ -45,10 +47,7 @@ impl DemoUserRepository {
                 .build(),
         ];
 
-        self.collection
-            .create_indexes(indexes)
-            .await
-            .map_err(|error| error::map(error, "DemoUser"))?;
+        self.collection.create_indexes(indexes).await.map_err(|error| error::map(error, ENTITY))?;
 
         tracing::info!("✓ DemoUser indexes created");
         Ok(())
@@ -59,17 +58,17 @@ impl DemoUserRepository {
 impl DemoUserRepositoryPort for DemoUserRepository {
     #[tracing::instrument(skip_all)]
     async fn create(&self, user: &DemoUser) -> DomainResult<DemoUserId> {
-        insert_one(&self.collection, user, "DemoUser").await
+        insert_one(&self.collection, user, ENTITY).await
     }
 
     #[tracing::instrument(skip_all)]
     async fn find_by_id(&self, id: &DemoUserId) -> DomainResult<Option<DemoUser>> {
-        find_by_id(&self.collection, id, "DemoUser").await
+        find_by_id(&self.collection, id, ENTITY).await
     }
 
     #[tracing::instrument(skip_all)]
     async fn find_all(&self, pagination: Pagination) -> DomainResult<PageResult<DemoUser>> {
-        paginate(&self.collection, doc! {}, pagination, "DemoUser").await
+        paginate(&self.collection, doc! {}, pagination, ENTITY).await
     }
 
     #[tracing::instrument(skip_all)]
@@ -79,7 +78,7 @@ impl DemoUserRepositoryPort for DemoUserRepository {
         user: &DemoUser,
         now: DateTime<Utc>,
     ) -> DomainResult<bool> {
-        let oid = error::parse_oid(id, "id", "DemoUser")?;
+        let oid = error::parse_oid(id, "id", ENTITY)?;
         let now = bson::DateTime::from_chrono(now);
         let result = self
             .collection
@@ -94,13 +93,13 @@ impl DemoUserRepositoryPort for DemoUserRepository {
                 },
             )
             .await
-            .map_err(|error| error::map(error, "DemoUser"))?;
+            .map_err(|error| error::map(error, ENTITY))?;
 
         Ok(result.matched_count > 0)
     }
 
     #[tracing::instrument(skip_all)]
     async fn delete(&self, id: &DemoUserId) -> DomainResult<bool> {
-        delete_by_id(&self.collection, id, "DemoUser").await
+        delete_by_id(&self.collection, id, ENTITY).await
     }
 }

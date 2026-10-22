@@ -1,10 +1,16 @@
 use crate::domain::core::error::{DomainError, DomainResult, StatusCode};
-use mongodb::{Client, Database, options::ClientOptions};
+use mongodb::{
+    Client, Database,
+    options::{Acknowledgment, ClientOptions, ReadPreference, SelectionCriteria},
+};
 use std::future::IntoFuture;
 use std::time::Duration;
 use tokio::time::timeout;
 
 /// Resolves the configuration, builds the client and pings before any repository uses it.
+///
+/// Reads prefer eligible secondaries and writes wait for a majority. Explicit URI options take
+/// precedence: `readPreference` and `w` are only filled in when absent.
 pub async fn connect(app_name: &str, mongo_url: &str, mongo_db: &str) -> DomainResult<Database> {
     let mut client_options =
         timeout(Duration::from_secs(10), ClientOptions::parse(mongo_url).into_future())
@@ -24,6 +30,10 @@ pub async fn connect(app_name: &str, mongo_url: &str, mongo_db: &str) -> DomainR
     client_options.app_name = Some(app_name.to_string());
     client_options.connect_timeout = Some(Duration::from_secs(3));
     client_options.server_selection_timeout = Some(Duration::from_secs(10));
+    client_options.selection_criteria.get_or_insert_with(|| {
+        SelectionCriteria::ReadPreference(ReadPreference::SecondaryPreferred { options: None })
+    });
+    client_options.write_concern.get_or_insert_default().w.get_or_insert(Acknowledgment::Majority);
 
     let client = Client::with_options(client_options).map_err(|_| {
         DomainError::new(

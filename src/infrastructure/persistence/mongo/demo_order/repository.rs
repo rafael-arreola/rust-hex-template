@@ -5,9 +5,12 @@ use crate::domain::entities::demo_user::DemoUserId;
 use crate::domain::port::repositories::demo_order::DemoOrderRepositoryPort;
 use crate::infrastructure::persistence::mongo::{
     delete_by_id, demo_order::model::DemoOrderModel, error, find_by_id, insert_one, paginate,
+    primary_collection,
 };
 use async_trait::async_trait;
 use mongodb::{Collection, Database, IndexModel, bson::doc, options::IndexOptions};
+
+const ENTITY: &str = "DemoOrder";
 
 #[derive(Clone)]
 pub struct DemoOrderRepository {
@@ -16,7 +19,7 @@ pub struct DemoOrderRepository {
 
 impl DemoOrderRepository {
     pub async fn new(db: &Database) -> DomainResult<Self> {
-        let repo = Self { collection: db.collection::<DemoOrderModel>("orders") };
+        let repo = Self { collection: primary_collection(db, "orders") };
         repo.create_indexes().await?;
         Ok(repo)
     }
@@ -39,10 +42,7 @@ impl DemoOrderRepository {
                 .build(),
         ];
 
-        self.collection
-            .create_indexes(indexes)
-            .await
-            .map_err(|error| error::map(error, "DemoOrder"))?;
+        self.collection.create_indexes(indexes).await.map_err(|error| error::map(error, ENTITY))?;
 
         tracing::info!("✓ Orders indexes created");
         Ok(())
@@ -53,17 +53,17 @@ impl DemoOrderRepository {
 impl DemoOrderRepositoryPort for DemoOrderRepository {
     #[tracing::instrument(skip_all)]
     async fn create(&self, order: &DemoOrder) -> DomainResult<DemoOrderId> {
-        insert_one(&self.collection, order, "DemoOrder").await
+        insert_one(&self.collection, order, ENTITY).await
     }
 
     #[tracing::instrument(skip_all)]
     async fn find_by_id(&self, id: &DemoOrderId) -> DomainResult<Option<DemoOrder>> {
-        find_by_id(&self.collection, id, "DemoOrder").await
+        find_by_id(&self.collection, id, ENTITY).await
     }
 
     #[tracing::instrument(skip_all)]
     async fn find_all(&self, pagination: Pagination) -> DomainResult<PageResult<DemoOrder>> {
-        paginate(&self.collection, doc! {}, pagination, "DemoOrder").await
+        paginate(&self.collection, doc! {}, pagination, ENTITY).await
     }
 
     #[tracing::instrument(skip_all)]
@@ -72,12 +72,12 @@ impl DemoOrderRepositoryPort for DemoOrderRepository {
         user_id: &DemoUserId,
         pagination: Pagination,
     ) -> DomainResult<PageResult<DemoOrder>> {
-        let oid = error::parse_oid(user_id, "user_id", "DemoOrder")?;
-        paginate(&self.collection, doc! { "user_id": oid }, pagination, "DemoOrder").await
+        let oid = error::parse_oid(user_id, "user_id", ENTITY)?;
+        paginate(&self.collection, doc! { "user_id": oid }, pagination, ENTITY).await
     }
 
     #[tracing::instrument(skip_all)]
     async fn delete(&self, id: &DemoOrderId) -> DomainResult<bool> {
-        delete_by_id(&self.collection, id, "DemoOrder").await
+        delete_by_id(&self.collection, id, ENTITY).await
     }
 }

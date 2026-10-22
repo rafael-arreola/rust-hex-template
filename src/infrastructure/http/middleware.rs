@@ -104,7 +104,6 @@ pub(super) async fn trace_context(req: Request<Body>, next: Next) -> Response {
         if status.is_server_error() {
             request_span.record("otel.status_code", "ERROR");
         }
-        tracing::info!(status = status.as_u16(), elapsed_ms, "HTTP request completed");
 
         response
     }

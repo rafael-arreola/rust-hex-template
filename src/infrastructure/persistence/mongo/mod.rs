@@ -5,14 +5,28 @@ mod error;
 
 use futures::stream::TryStreamExt;
 use mongodb::{
-    Collection,
+    Collection, Database,
     bson::{Document, doc},
+    options::{CollectionOptions, ReadPreference, SelectionCriteria},
 };
 use serde::{Serialize, de::DeserializeOwned};
 
 use crate::domain::core::error::{DomainError, DomainResult, StatusCode};
 use crate::domain::core::pagination::{PageResult, Pagination};
 use crate::domain::core::values::DomainId;
+
+/// Returns a collection handle whose reads always route to the replica-set primary.
+fn primary_collection<T>(db: &Database, name: &str) -> Collection<T>
+where
+    T: Send + Sync,
+{
+    db.collection_with_options::<T>(
+        name,
+        CollectionOptions::builder()
+            .selection_criteria(SelectionCriteria::ReadPreference(ReadPreference::Primary))
+            .build(),
+    )
+}
 
 /// Converts `entity_val` into its BSON model `M`, inserts it and returns the assigned `DomainId`.
 async fn insert_one<M, E, T>(
